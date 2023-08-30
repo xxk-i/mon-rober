@@ -2,10 +2,19 @@ use std::env;
 use std::fs::File;
 use std::path::PathBuf;
 
+use binrw::BinRead;
+use binrw::BinResult;
+use binrw::Endian;
+use binrw::io::Seek;
+use binrw::io::Read;
+use binrw::io::SeekFrom;
 use binrw::BinReaderExt;
 use binrw::binrw;
 use binrw::NullString;
 
+
+// RESOURCES
+// https://web.archive.org/web/20060623000027/http://nocash.emubase.de/gbatek.htm
 // https://dsibrew.org/wiki/DSi_cartridge_header
 
 #[binrw]
@@ -37,11 +46,11 @@ struct NDS {
 
     // FILE NAME TABLE (FNT)
     fnt_offset: u32,
-    fnt_legnth: u32,
+    fnt_length: u32,
 
     // FILE ALLOCATION TABLE (FAT)
     fat_offset: u32,
-    fat_lenth: u32,
+    fat_length: u32,
 
     // ARM9 OVERLAY
     arm9_overlay_offset: u32,
@@ -76,12 +85,61 @@ struct NDS {
 //     ...
 // }
 
+#[derive(Debug)]
+enum SubtableEntry {
+    FileEntry(String),
+
+    SubdirectoryEntry(String, u16),
+
+    Reserved,
+
+    End
+}
+
+#[derive(Debug)]
 #[binrw]
+#[br(assert(total_directories < 4096, "total_directories is greater than 4096: {}", total_directories))]
 struct FNTDirectoryMainTable {
     subtable_offset: u32,
     first_file_id: u16,
 
     total_directories: u16,
+
+    #[br(count = total_directories)]
+    entries: Vec<u16>,
+}
+
+fn parse_subtable<R: Read + Seek>(reader: &mut R, _ro: Endian, args: (u8,)) -> BinResult<SubtableEntry> {
+    let datatype = args.0;
+
+    return match datatype {
+        0 => Ok(SubtableEntry::End),
+
+        1..=0x7F => {
+            let mut buffer = vec![0; datatype as usize];
+            reader.read_exact(buffer.as_mut_slice())?;
+            Ok(SubtableEntry::FileEntry(String::from_utf8(buffer.as_slice().clone().to_owned()).expect("Failed to interpret subtable name")))
+        },
+
+        0x80 => {
+            Ok(SubtableEntry::Reserved)
+        },
+
+        0x81..=0xFF => {
+            println!("found subtable entry: {}", reader.stream_position().unwrap());
+            // Ok(SubtableENtry::SubdirectoryEntry(".", 0));
+            todo!()
+        },
+    };
+}
+
+#[derive(Debug, BinRead)]
+struct FNTSubtable {
+    table_type: u8,
+
+    // https://github.com/jam1garner/binrw/issues/73#issuecomment-935758313
+    #[br(args(table_type), parse_with = parse_subtable)]
+    data: SubtableEntry,
 }
 
 fn main() {
@@ -93,9 +151,17 @@ fn main() {
 
     else {
         let path = PathBuf::from(args.get(1).unwrap());
-        let nds: NDS = File::open(path).expect("Failed to open file").read_le().expect("Failed to read file");
-        println!("{:#0X?}", nds);
+        let mut file = File::open(path).expect("Failed to open file");
+        let nds: NDS = file.read_le().expect("Failed to read file");
+        file.seek(SeekFrom::Start(nds.fnt_offset as u64)).expect("Failed to seek to FNT");
+        let main_table: FNTDirectoryMainTable =  file.read_le().unwrap();
+
+        file.seek(SeekFrom::Start(nds.fnt_offset as u64 + main_table.subtable_offset as u64)).expect("Failed to seek to first subtable");
+        let sub_table: FNTSubtable = file.read_le().unwrap();
+
+        // println!("{:#0X?}", nds);
+        println!("{:#0X?}", sub_table);
     }
 
-    println!("{:#?}", args);
+    // println!("{:#?}", args);
 }
