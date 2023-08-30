@@ -3,8 +3,6 @@ use binrw::BinResult;
 use binrw::Endian;
 use binrw::io::Seek;
 use binrw::io::Read;
-use binrw::io::SeekFrom;
-use binrw::BinReaderExt;
 use binrw::binrw;
 use binrw::NullString;
 
@@ -75,6 +73,13 @@ pub struct NDS {
     nintendo_logo_crc: u16,
     header_crc: u16,
     debugger_reserved: [u8;32],
+}
+
+#[derive(Debug)]
+#[binrw]
+pub struct FileAllocationTable {
+    pub start_address: u32,
+    pub end_address: u32,
 }
 
 #[derive(Debug)]
