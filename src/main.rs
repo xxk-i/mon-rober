@@ -15,6 +15,7 @@ use nds::FNTSubtable;
 use nds::SubtableEntry;
 use nds::FileAllocationTable;
 use nds::narc;
+use nds::nclr;
 
 fn iterate_main_table(file: &mut File, fnt_offset: u32, subtable_offset: u32, path: PathBuf, filelist: &mut Vec<PathBuf>) {
     file.seek(SeekFrom::Start(subtable_offset as u64)).unwrap();
@@ -79,6 +80,41 @@ fn main() {
 
     if args.len() < 2 {
         println!("Usage: mon-rober <path>");
+    }
+
+    let path = PathBuf::from(args.get(1).unwrap());
+
+    let mut file = File::open(path).expect("Failed to open NCLR");
+
+    let nclr: nclr::NCLR = file.read_le().unwrap();
+
+    // const r = (bgrInt & 0b11111) * 8;
+    // const g = ((bgrInt >>> 5) & 0b11111) * 8;
+    // const b = ((bgrInt >>> 10) & 0b11111) * 8;
+
+    // conversion algorithm from orangeglo
+    // translated from javascript
+    // https://orangeglo.github.io/BGR555/
+
+    let mut converted_colors = Vec::new();
+
+    for color in &nclr.data {
+        if *color != 0 {
+            // println!("{:b}", color);
+            println!("{:0X}", color);
+            let r = (color & 0b11111) * 8;
+            let g = ((color >> 5) & 0b11111) * 8;
+            let b = ((color >> 10) & 0b11111) * 8;
+            println!("{:0X}{:0X}{:0X}", r + (r / 32), g + (g / 32), b + (b / 32));
+        }
+    }
+
+    converted_colors.push(32u32);
+
+    return;
+    
+    if 1 == 2 {
+
     }
 
     else {

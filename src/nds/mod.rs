@@ -7,6 +7,7 @@ use binrw::binrw;
 use binrw::NullString;
 
 pub mod narc;
+pub mod nclr;
 
 // RESOURCES
 // https://web.archive.org/web/20060623000027/http://nocash.emubase.de/gbatek.htm
@@ -139,4 +140,15 @@ fn parse_subtable<R: Read + Seek>(reader: &mut R, _ro: Endian, args: (u8,)) -> B
             Ok(SubtableEntry::SubdirectoryEntry(String::from_utf8(buffer.as_slice().clone().to_owned()).unwrap(), u16::from_le_bytes(id)))
         },
     };
+}
+
+#[derive(Debug)]
+#[binrw]
+pub struct GenericHeader {
+    #[br(count=4)]
+    magic: Vec<u8>,
+    constant: u32,
+    section_size: u32,
+    header_size: u16,
+    section_count: u16,
 }
