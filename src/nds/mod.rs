@@ -6,6 +6,8 @@ use binrw::io::Read;
 use binrw::binrw;
 use binrw::NullString;
 
+pub mod narc;
+
 // RESOURCES
 // https://web.archive.org/web/20060623000027/http://nocash.emubase.de/gbatek.htm
 // https://dsibrew.org/wiki/DSi_cartridge_header
