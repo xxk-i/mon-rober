@@ -8,6 +8,7 @@ use binrw::NullString;
 
 pub mod narc;
 pub mod nclr;
+pub mod ncgr;
 
 // RESOURCES
 // https://web.archive.org/web/20060623000027/http://nocash.emubase.de/gbatek.htm
@@ -142,12 +143,15 @@ fn parse_subtable<R: Read + Seek>(reader: &mut R, _ro: Endian, args: (u8,)) -> B
     };
 }
 
+// merged with info found at http://problemkaputt.de/gbatek-ds-files-2d-video.htm
 #[derive(Debug)]
 #[binrw]
 pub struct GenericHeader {
     #[br(count=4)]
     magic: Vec<u8>,
-    constant: u32,
+    // constant: u32, // we swap this out
+    byte_order: u16,
+    version: u16,
     section_size: u32,
     header_size: u16,
     section_count: u16,

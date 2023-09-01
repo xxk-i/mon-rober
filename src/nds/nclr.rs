@@ -1,11 +1,19 @@
 // https://www.romhacking.net/documents/%5B469%5Dnds_formats.htm#NCLR
 
+use std::io::SeekFrom;
 use binrw::binrw;
 
 #[derive(Debug)]
 #[binrw]
 pub struct NCLR {
     pub header: crate::nds::GenericHeader,
+    #[br(seek_before(SeekFrom::Start(header.header_size as u64)))]
+    pub ttlp: TTLP,
+}
+
+#[derive(Debug)]
+#[binrw]
+pub struct TTLP {
     #[br(count=4)]
     pub magic: Vec<u8>,
     pub section_size: u32,
