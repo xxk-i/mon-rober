@@ -22,8 +22,6 @@ use nds::narc;
 use nds::ncgr::NCGR;
 use nds::nclr;
 
-use crate::nds::nclr::NCLR;
-
 fn iterate_main_table(file: &mut File, fnt_offset: u32, subtable_offset: u32, path: PathBuf, filelist: &mut Vec<PathBuf>) {
     file.seek(SeekFrom::Start(subtable_offset as u64)).unwrap();
 
@@ -253,7 +251,7 @@ fn unpack_narc(mut file: File, path: PathBuf) {
 
 fn unpack_ncgr(mut file: File, path: PathBuf) {
     // let mut palette_file = File::open("K:/Developer/mon-rober/narc_unpacked/0/0_1").unwrap();
-    let mut palette_file = File::open("K:/Developer/mon-rober/narc_unpacked/skb/skb_5").unwrap();
+    let palette_file = File::open("K:/Developer/mon-rober/narc_unpacked/skb/skb_5").unwrap();
     let palette = unpack_nclr(palette_file);
 
     let ncgr: NCGR = file.read_le().unwrap();
