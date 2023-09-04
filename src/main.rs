@@ -1,6 +1,7 @@
-use std::convert;
 use std::env;
+use std::error::Error;
 use std::fs::File;
+use std::io::Cursor;
 use std::io::Read;
 use std::io::Write;
 use std::path::Path;
@@ -21,6 +22,13 @@ use nds::FileAllocationTable;
 use nds::narc;
 use nds::ncgr::NCGR;
 use nds::nclr;
+use walkdir::WalkDir;
+
+struct GraphicsResource {
+    width: u32,
+    height: u32,
+    data: Vec<u8>,
+}
 
 fn iterate_main_table(file: &mut File, fnt_offset: u32, subtable_offset: u32, path: PathBuf, filelist: &mut Vec<PathBuf>) {
     file.seek(SeekFrom::Start(subtable_offset as u64)).unwrap();
@@ -122,9 +130,7 @@ fn unpack_rom(mut file: File, path: PathBuf) {
     }
 }
 
-fn unpack_nclr(mut file: File) -> Vec<(u8, u8, u8)> {
-    let nclr: nclr::NCLR = file.read_le().unwrap();
-
+fn unpack_nclr(nclr: &mut nclr::NCLR) -> Vec<(u8, u8, u8)> {
     // const r = (bgrInt & 0b11111) * 8;
     // const g = ((bgrInt >>> 5) & 0b11111) * 8;
     // const b = ((bgrInt >>> 10) & 0b11111) * 8;
@@ -249,16 +255,8 @@ fn unpack_narc(mut file: File, path: PathBuf) {
     }
 }
 
-fn unpack_ncgr(mut file: File, path: PathBuf) {
-    // let mut palette_file = File::open("K:/Developer/mon-rober/narc_unpacked/0/0_1").unwrap();
-    let palette_file = File::open("K:/Developer/mon-rober/narc_unpacked/skb/skb_5").unwrap();
-    let palette = unpack_nclr(palette_file);
-
-    let ncgr: NCGR = file.read_le().unwrap();
-
-    println!("color depth: {}", ncgr.rahc.color_depth);
-
-    println!("palette len {}", palette.len());
+fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>) -> Result<GraphicsResource, Box<dyn Error>> {
+    let ncgr: NCGR = cursor.read_le().unwrap();
 
     let mut colors = Vec::new();
 
@@ -293,9 +291,7 @@ fn unpack_ncgr(mut file: File, path: PathBuf) {
 
     let tile_count = (ncgr.rahc.tile_data_size_bytes / ncgr.rahc.tile_dimension as u32) / colors_per_byte;
 
-    let image_tile_width = 16;
-
-    println!("tile count: {}", tile_count);
+    let image_tile_width = 2;
 
     // this was constructed via black magic
     // it does a bunch of multiplication/addition to get pixel data
@@ -309,7 +305,11 @@ fn unpack_ncgr(mut file: File, path: PathBuf) {
                     color_index += column * 8;
                     color_index += image_index * 64 * image_tile_width;
                     color_index += row; 
-                    new_pixels.push(colors[color_index as usize].clone());
+                    let color = colors.get(color_index as usize).clone();
+                    match color {
+                        Some(c) => new_pixels.push(c),
+                        None => new_pixels.push(&(255, 255, 255)),
+                    }
                 }
             }
         }
@@ -323,7 +323,84 @@ fn unpack_ncgr(mut file: File, path: PathBuf) {
         buffer.push(pixel.2);
     }
 
-    save_buffer(&Path::new("K:/Developer/mon-rober/output2.png"), buffer.as_slice(), 8 * image_tile_width as u32, (tile_count / image_tile_width as u32) * 8 as u32, image::ColorType::Rgb8).expect("Failed to save buffer");
+    // save_buffer(&Path::new("K:/Developer/mon-rober/output2.png"), buffer.as_slice(), 8 * image_tile_width as u32, (tile_count / image_tile_width as u32) * 8 as u32, image::ColorType::Rgb8).expect("Failed to save buffer");
+    Ok(GraphicsResource {
+        width: 8 * image_tile_width as u32,
+        height: (tile_count / image_tile_width as u32) * 8,
+        data: buffer,
+    })
+}
+
+fn extract_sprites_from_narc(mut file: File, path: &Path) -> Result<(), Box<dyn Error>>{
+    let narc: narc::NARC = file.read_le()?;
+
+    let mut palette_file: Option<nclr::NCLR> = None;
+
+    let current_dir = std::env::current_dir().unwrap();
+    
+    let mut output_path_base= PathBuf::new();
+    output_path_base.push(current_dir);
+    output_path_base.push("output/");
+    output_path_base.push(path.clone());
+
+    let mut file_num = 0;
+
+    // these NARC can contain a tree for filenames but for this game, they don't <3
+    // skip to FAT and just dump data to generic filenames
+    for entry in narc.fat_block.entries {
+        let data = &narc.img_block.data[entry.start_address as usize..entry.end_address as usize];
+
+        if data.len() < 4 {
+            continue;
+        }
+
+        let mut output_path = output_path_base.clone();
+
+        // unwrap or continue
+        let Ok(magic) = String::from_utf8(data[0..4].to_vec()) else {
+            continue;
+        };
+
+        match magic.as_str() {
+            "RLCN" => {
+                if palette_file.is_some() {
+                    continue;
+                } else {
+                    let mut cursor = Cursor::new(data);
+                    palette_file = Some(cursor.read_le().unwrap());
+                }
+            },
+
+            "RGCN" => {
+                if palette_file.is_none() {
+                    println!("Graphics resource found but missing palette; skipping...");
+                    continue;
+                }
+
+                let mut cursor = Cursor::new(data);
+                let palette = unpack_nclr(palette_file.as_mut().unwrap());
+
+                let Ok(graphics_resource) = unpack_ncgr(cursor, palette) else {
+                    continue;
+                };
+
+                output_path.push(file_num.to_string() + ".png");
+
+                println!("Writing sprite file: {:?}", output_path);
+
+                if graphics_resource.height != 0 {
+                    std::fs::create_dir_all(&output_path_base).expect("Failed to create output path(s)");
+                    save_buffer(&output_path, &graphics_resource.data, graphics_resource.width, graphics_resource.height, image::ColorType::Rgb8).expect("Failed to save buffer");
+                }    
+            },
+
+            _ => println!("Unknown type, skipping"),
+        }
+
+        file_num += 1;
+    }
+
+    Ok(())
 }
 
 fn main() {
@@ -334,6 +411,26 @@ fn main() {
     }
 
     let path = PathBuf::from(args.get(1).unwrap());
+
+    for entry in WalkDir::new(&path).into_iter().filter_map(|e| e.ok()).filter(|e| e.metadata().unwrap().is_file()) {
+        let mut magic = vec![0u8; 4];
+        let mut file = File::open(entry.path()).expect("Failed to open file in input directory");
+        file.read_exact(magic.as_mut_slice()).expect("Failed to read magic of input file... is file empty?");
+
+        let Ok(magic) = String::from_utf8(magic) else {
+            continue
+        };
+
+        if magic.as_str().eq("NARC") {
+            file.seek(SeekFrom::Start(0u64)).unwrap();
+            match extract_sprites_from_narc(file, entry.path()) {
+                Ok(()) => {},
+                Err(e) => eprintln!("Failure extracting sprite: {:?}, {}", entry.path(), e),
+            }
+        }
+    }
+    
+    return;
 
     let mut file = File::open(&path).expect("Failed to open input file");
 
@@ -357,12 +454,12 @@ fn main() {
         
         "RGCN" => {
             println!("Unpacking Nitro Character Graphics Resource");
-            unpack_ncgr(file, path);
+            // unpack_ncgr(file, path);
         },
 
         "RLCN" => {
             println!("Unpacking Nitro Color Resource");
-            unpack_nclr(file);
+            // unpack_nclr(file);
         }
 
         _ => println!("Unrecognized file")
