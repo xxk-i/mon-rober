@@ -289,9 +289,11 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>) -> Result<
         1
     };
 
-    let tile_count = (ncgr.rahc.tile_data_size_bytes / ncgr.rahc.tile_dimension as u32) / colors_per_byte;
 
-    let image_tile_width = 2;
+    // let tile_count = (ncgr.rahc.tile_data_size_bytes / ncgr.rahc.tile_dimension as u32) / colors_per_byte;
+    let tile_count = (ncgr.rahc.tile_data_size_bytes / 16u32) / colors_per_byte;
+
+    let image_tile_width = 4;
 
     // this was constructed via black magic
     // it does a bunch of multiplication/addition to get pixel data
@@ -323,6 +325,8 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>) -> Result<
         buffer.push(pixel.2);
     }
 
+    // println!("tile count: {}\t width: {}", tile_count, image_tile_width);
+
     // save_buffer(&Path::new("K:/Developer/mon-rober/output2.png"), buffer.as_slice(), 8 * image_tile_width as u32, (tile_count / image_tile_width as u32) * 8 as u32, image::ColorType::Rgb8).expect("Failed to save buffer");
     Ok(GraphicsResource {
         width: 8 * image_tile_width as u32,
@@ -340,7 +344,7 @@ fn extract_sprites_from_narc(mut file: File, path: &Path) -> Result<(), Box<dyn 
     
     let mut output_path_base= PathBuf::new();
     output_path_base.push(current_dir);
-    output_path_base.push("output/");
+    output_path_base.push("output\\");
     output_path_base.push(path.clone());
 
     let mut file_num = 0;
@@ -389,12 +393,12 @@ fn extract_sprites_from_narc(mut file: File, path: &Path) -> Result<(), Box<dyn 
                 println!("Writing sprite file: {:?}", output_path);
 
                 if graphics_resource.height != 0 {
-                    std::fs::create_dir_all(&output_path_base).expect("Failed to create output path(s)");
+                    std::fs::create_dir_all(&output_path.parent().unwrap()).expect("Failed to create output path(s)");
                     save_buffer(&output_path, &graphics_resource.data, graphics_resource.width, graphics_resource.height, image::ColorType::Rgb8).expect("Failed to save buffer");
                 }    
             },
 
-            _ => println!("Unknown type, skipping"),
+            _ => println!("Unknown type, skipping ({})", magic),
         }
 
         file_num += 1;
@@ -404,15 +408,24 @@ fn extract_sprites_from_narc(mut file: File, path: &Path) -> Result<(), Box<dyn 
 }
 
 fn main() {
+    std::fs::create_dir_all("K:\\Developer\\mon-rober\\output\\unpacked\\a\\0\\0\\7").unwrap();
+
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
         println!("Usage: mon-rober <path>");
+        return;
     }
 
     let path = PathBuf::from(args.get(1).unwrap());
 
     for entry in WalkDir::new(&path).into_iter().filter_map(|e| e.ok()).filter(|e| e.metadata().unwrap().is_file()) {
+        // println!("entry: {:?}", entry.path());
+
+        if entry.path().to_str().unwrap().ne("unpacked\\a\\0\\0\\7") {
+            continue;
+        }
+
         let mut magic = vec![0u8; 4];
         let mut file = File::open(entry.path()).expect("Failed to open file in input directory");
         file.read_exact(magic.as_mut_slice()).expect("Failed to read magic of input file... is file empty?");
@@ -431,38 +444,4 @@ fn main() {
     }
     
     return;
-
-    let mut file = File::open(&path).expect("Failed to open input file");
-
-    let mut magic = vec![0u8; 4];
-    file.read_exact(magic.as_mut_slice()).expect("Failed to read magic of input file... is file empty?");
-    let magic = String::from_utf8(magic).unwrap();
-
-    file.seek(SeekFrom::Start(0u64)).unwrap();
-
-    match magic.as_str() {
-        // this is just a game title not a MAGIC but I don't want to check extension <3
-        "POKE" => {
-            println!("Unpacking Main ROM");
-            unpack_rom(file, path);
-        },
-
-        "NARC" =>  {
-            println!("Unpacking Nintendo Archive");
-            unpack_narc(file, path);
-        },
-        
-        "RGCN" => {
-            println!("Unpacking Nitro Character Graphics Resource");
-            // unpack_ncgr(file, path);
-        },
-
-        "RLCN" => {
-            println!("Unpacking Nitro Color Resource");
-            // unpack_nclr(file);
-        }
-
-        _ => println!("Unrecognized file")
-    };
-        
 }
