@@ -156,3 +156,10 @@ pub struct GenericHeader {
     header_size: u16,
     section_count: u16,
 }
+
+pub enum NDSCompressionType {
+    LZ77,
+    Huffman,
+    RLUncomp,
+    None,
+}

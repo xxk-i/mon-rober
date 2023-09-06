@@ -6,11 +6,13 @@ use std::io::Read;
 use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
+use std::thread::current;
 
 use binrw::io::Seek;
 use binrw::io::SeekFrom;
 use binrw::BinReaderExt;
 
+use image::EncodableLayout;
 use image::save_buffer;
 
 mod nds;
@@ -22,7 +24,10 @@ use nds::FileAllocationTable;
 use nds::narc;
 use nds::ncgr::NCGR;
 use nds::nclr;
+use nds::NDSCompressionType;
 use walkdir::WalkDir;
+
+use bitvec::prelude::*;
 
 struct GraphicsResource {
     width: u32,
@@ -219,6 +224,7 @@ fn unpack_narc(mut file: File, path: PathBuf) {
         }
     } else {
         for i in 0..filelist.len() {
+            println!("Filename: {:?}", filelist[i]);
             let end_address = narc.fat_block.entries[i].end_address;
             let start_address = narc.fat_block.entries[i].start_address;
 
@@ -255,8 +261,16 @@ fn unpack_narc(mut file: File, path: PathBuf) {
     }
 }
 
-fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>) -> Result<GraphicsResource, Box<dyn Error>> {
+fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, compression: NDSCompressionType) -> Result<GraphicsResource, Box<dyn Error>> {
     let ncgr: NCGR = cursor.read_le().unwrap();
+
+    match compression {
+        NDSCompressionType::None => {},
+        NDSCompressionType::LZ77 => {
+
+        },
+        _ => unimplemented!()
+    }
 
     let mut colors = Vec::new();
 
@@ -335,9 +349,134 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>) -> Result<
     })
 }
 
-fn extract_sprites_from_narc(mut file: File, path: &Path) -> Result<(), Box<dyn Error>>{
-    let narc: narc::NARC = file.read_le()?;
+fn decompress_lz77(mut file: File) -> Vec<u8> {
+    let mut decompressed_data = Vec::new();
+    let mut compressed_data = vec![0u8; file.metadata().unwrap().len() as usize];
+    file.read(compressed_data.as_mut_slice()).unwrap();
 
+    // println!("{}", compressed_data.len());
+    
+    let magic = &compressed_data[0..4];
+    let size: u32 = magic[1] as u32 + ((magic[2] as u32) << 8) + ((magic[3] as u32) << 16);
+    // let mut current_position = 4;
+
+    // let mut forward = 1;
+    // while decompressed_data.len() <= size as usize && current_position < compressed_data.len() {
+    //     let flags = compressed_data[current_position].view_bits::<Msb0>();
+    //     for i in 0..8 {
+    //         if current_position + forward >= compressed_data.len() { break; }
+
+    //         if decompressed_data.len() >= size as usize { break; }
+
+    //         let flag = flags.get(i as usize).unwrap();
+            
+    //         if *flag {
+    //             let amount_to_copy = 3 + ((compressed_data[current_position + forward] >> 4) & 0xF);
+    //             let copy_from: usize = (1 + ((compressed_data[current_position + forward] as usize & 0xF) << 8) as usize + compressed_data[current_position + forward + 1] as usize);
+    //             let copy_position = decompressed_data.len() - copy_from as usize;
+
+    //             for j in 0..amount_to_copy as usize {
+    //                 if copy_position + (j % copy_from) < decompressed_data.len() {
+    //                     decompressed_data.push(decompressed_data[copy_position + (j % copy_from)]);
+    //                 } else {
+    //                     return decompressed_data
+    //                 }
+    //             }
+    //             forward += 2;
+    //         } else {
+    //             decompressed_data.push(compressed_data[current_position + forward]);
+    //             forward += 1;
+    //         }
+    //     }
+
+    //     current_position += forward;
+    // }
+
+    // while decompressed_data.len() < size as usize {
+    //     decompressed_data.push(0);
+    // }
+
+    // let mut output_path = std::env::current_dir().unwrap();
+    // output_path.push("decompressed.narc");
+    // println!("{:?}", output_path);
+    // let mut output = File::create(output_path).unwrap();
+    // output.write(&decompressed_data.as_slice()).unwrap();
+
+    // decompressed_data
+
+    file.seek(SeekFrom::Start(4)).unwrap();
+
+    while file.stream_position().unwrap() != file.metadata().unwrap().len() {
+        let flag_byte: u8 = file.read_le().unwrap();
+
+        // all bits are zero, no compression
+        if flag_byte == 0 {
+            for _ in 0..8 {
+                decompressed_data.push(file.read_le::<u8>().unwrap());
+            }
+            continue;
+        }
+
+        println!("flag: {:0X}", flag_byte);
+
+        // poorly adapted from this best by far reference:
+        // https://github.com/mtheall/decompress/blob/master/source/lzss.c
+        let flags = flag_byte.view_bits::<Msb0>();
+        for i in 0..8u8 {
+            let flag = flags.get(i as usize).unwrap();
+            if *flag {
+                let reference: u16 = file.read_le().unwrap();
+                let first: u8 = u8::try_from(reference << 8 >> 8).unwrap();
+                let second: u8 = u8::try_from(reference >> 8).unwrap();
+                let len: u32 = (((first & 0xF0)>>4)+3) as u32;
+                let mut disp: u32 = (first & 0x0F) as u32;
+                disp = disp << 8 | second as u32;
+
+                println!("{}", disp);
+                println!("{}", len);
+
+                let offset = decompressed_data.len() - 1 - disp as usize;
+
+                println!("offset: {} - {}", offset, offset + len as usize);
+                println!("len: {}", decompressed_data.len());
+                println!("data: {:0X?}", decompressed_data);
+
+                let data = decompressed_data.get(offset..offset + len as usize).unwrap().to_owned();
+                decompressed_data.extend_from_slice(data.as_slice());
+
+                // let most_significant_bits = (reference & 0b1111000000000000);
+                // let copy_count = (reference & 0b0000111100000000);
+                // let least_significant_bits = reference & 0b0000000011111111;
+                // let copy_offset: i16 = ((least_significant_bits | most_significant_bits << 8) + 1) as i16;
+                // println!("copy_count: {}", copy_count);
+                // println!("data.len: {}", decompressed_data.len());
+                // println!("copy_offset: {}", copy_offset);
+                // while copy_count as u64 > (decompressed_data.len() as u64 - copy_offset as u64) {
+                //     let data = decompressed_data.get((decompressed_data.len() - 1 - copy_offset as usize)..copy_count as usize + 3).unwrap().to_owned();
+                //     decompressed_data.extend_from_slice(data.as_slice());
+                // }
+            } else {
+                decompressed_data.push(file.read_le::<u8>().unwrap());
+            }
+        }
+    }
+
+    let padding_size = size as usize - decompressed_data.len();
+    for _ in 0..padding_size {
+        decompressed_data.push(0u8);
+    }
+
+    let mut output_path = std::env::current_dir().unwrap();
+    output_path.push("decompressed.narc");
+    println!("{:?}", output_path);
+    let mut output = File::create(output_path).unwrap();
+    output.write(&decompressed_data.as_slice()).unwrap();
+
+    decompressed_data
+}
+
+// fn extract_sprites_from_narc(mut file: File, path: &Path) -> Result<(), Box<dyn Error>>{
+fn extract_sprites_from_narc(mut narc: nds::narc::NARC, path: &Path) -> Result<(), Box<dyn Error>>{
     let mut palette_file: Option<nclr::NCLR> = None;
 
     let current_dir = std::env::current_dir().unwrap();
@@ -360,13 +499,15 @@ fn extract_sprites_from_narc(mut file: File, path: &Path) -> Result<(), Box<dyn 
 
         let mut output_path = output_path_base.clone();
 
-        // unwrap or continue
-        let Ok(magic) = String::from_utf8(data[0..4].to_vec()) else {
-            continue;
-        };
+        let magic = &data[0..4];
 
-        match magic.as_str() {
-            "RLCN" => {
+        // unwrap or continue
+        // let Ok(magic) = String::from_utf8(data[0..4].to_vec()) else {
+        //     continue;
+        // };
+
+        match magic {
+            b"RLCN" => {
                 if palette_file.is_some() {
                     continue;
                 } else {
@@ -375,7 +516,7 @@ fn extract_sprites_from_narc(mut file: File, path: &Path) -> Result<(), Box<dyn 
                 }
             },
 
-            "RGCN" => {
+            b"RGCN" => {
                 if palette_file.is_none() {
                     println!("Graphics resource found but missing palette; skipping...");
                     continue;
@@ -384,7 +525,7 @@ fn extract_sprites_from_narc(mut file: File, path: &Path) -> Result<(), Box<dyn 
                 let mut cursor = Cursor::new(data);
                 let palette = unpack_nclr(palette_file.as_mut().unwrap());
 
-                let Ok(graphics_resource) = unpack_ncgr(cursor, palette) else {
+                let Ok(graphics_resource) = unpack_ncgr(cursor, palette, NDSCompressionType::LZ77) else {
                     continue;
                 };
 
@@ -398,7 +539,16 @@ fn extract_sprites_from_narc(mut file: File, path: &Path) -> Result<(), Box<dyn 
                 }    
             },
 
-            _ => println!("Unknown type, skipping ({})", magic),
+            // // compressed sprite :(
+            // [0x10, 0x40, 0x20, 0x00] => {
+            //     let cursor = Cursor::new(&data[4..]);
+            //     let mut palette_file: nclr::NCLR = File::open("K:\\Developer\\mon-rober\\narc_unpacked\\7_72").unwrap().read_le().unwrap();
+            //     let palette = unpack_nclr(&mut palette_file);
+            //     decompress_lz77(cursor, palette, NDSCompressionType::LZ77).unwrap();
+
+            // }
+
+            _ => println!("Unknown type, skipping ({:?})", magic),
         }
 
         file_num += 1;
@@ -408,8 +558,6 @@ fn extract_sprites_from_narc(mut file: File, path: &Path) -> Result<(), Box<dyn 
 }
 
 fn main() {
-    std::fs::create_dir_all("K:\\Developer\\mon-rober\\output\\unpacked\\a\\0\\0\\7").unwrap();
-
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
@@ -418,13 +566,19 @@ fn main() {
     }
 
     let path = PathBuf::from(args.get(1).unwrap());
+    let mut file = File::open(&path).unwrap();
+
+    let decompressed_data = decompress_lz77(file);
+    let narc: narc::NARC = Cursor::new(decompressed_data).read_le().unwrap();
+
+    extract_sprites_from_narc(narc, &path);
+
+    return;
 
     for entry in WalkDir::new(&path).into_iter().filter_map(|e| e.ok()).filter(|e| e.metadata().unwrap().is_file()) {
-        // println!("entry: {:?}", entry.path());
-
-        if entry.path().to_str().unwrap().ne("unpacked\\a\\0\\0\\7") {
-            continue;
-        }
+        // if entry.path().to_str().unwrap().ne("unpacked\\a\\0\\0\\7") {
+        //     continue;
+        // }
 
         let mut magic = vec![0u8; 4];
         let mut file = File::open(entry.path()).expect("Failed to open file in input directory");
@@ -436,10 +590,10 @@ fn main() {
 
         if magic.as_str().eq("NARC") {
             file.seek(SeekFrom::Start(0u64)).unwrap();
-            match extract_sprites_from_narc(file, entry.path()) {
-                Ok(()) => {},
-                Err(e) => eprintln!("Failure extracting sprite: {:?}, {}", entry.path(), e),
-            }
+            // match extract_sprites_from_narc(file, entry.path()) {
+            //     Ok(()) => {},
+            //     Err(e) => eprintln!("Failure extracting sprite: {:?}, {}", entry.path(), e),
+            // }
         }
     }
     
