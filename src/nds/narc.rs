@@ -1,4 +1,4 @@
-use binrw::{BinRead, binrw};
+use binrw::binrw;
 
 // http://problemkaputt.de/gbatek-ds-cartridge-nitrorom-and-nitroarc-file-systems.htm
 

@@ -158,7 +158,7 @@ pub struct GenericHeader {
 }
 
 pub enum NDSCompressionType {
-    LZ77,
+    LZ77(usize),
     Huffman,
     RLUncomp,
     None,
