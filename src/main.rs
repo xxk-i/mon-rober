@@ -27,6 +27,8 @@ use walkdir::WalkDir;
 
 use bitvec::prelude::*;
 
+const ASSET_DIR: &'static str = "assets";
+
 struct GraphicsResource {
     width: u32,
     height: u32,
@@ -61,36 +63,7 @@ fn iterate_main_table(file: &mut File, fnt_offset: u32, subtable_offset: u32, pa
     }
 }
 
-fn iterate_narc_main_table(file: &mut File, fnt_offset: u32, path: PathBuf, filelist: &mut Vec<PathBuf>) {
-    file.seek(SeekFrom::Start(fnt_offset as u64)).unwrap();
-
-    let main_table: FNTDirectoryMainTable = file.read_le().unwrap();
-
-    println!("main_table: {:#?}", main_table);
-
-    file.seek(SeekFrom::Start(fnt_offset as u64 + main_table.subtable_offset as u64)).expect("Failed to seek to first subtable");
-
-    loop {
-        let table: FNTSubtable = file.read_le().unwrap();
-
-        match &table.data {
-            SubtableEntry::FileEntry(name) => {
-                let filepath = path.clone().join(PathBuf::from(name));
-                println!("File entry: {:#?}", filepath);
-                filelist.push(filepath);
-            },
-            SubtableEntry::SubdirectoryEntry(name, id) => { 
-                let previous_position = file.stream_position().unwrap();
-                iterate_narc_main_table(file, fnt_offset, path.clone().join(PathBuf::from(name)), filelist);
-                file.seek(SeekFrom::Start(previous_position)).unwrap();
-            },
-            SubtableEntry::Reserved => {},
-            SubtableEntry::End => break,
-        }
-    }
-}
-
-fn unpack_rom(mut file: File, path: PathBuf) {
+fn unpack_rom(mut file: File, path: &PathBuf) {
     let mut filelist = Vec::new();
 
     let current_dir = std::env::current_dir().expect("Failed to get current directory");
@@ -159,8 +132,6 @@ fn unpack_nclr(nclr: &mut nclr::NCLR) -> Vec<(u8, u8, u8)> {
 }
 
 fn unpack_narc(mut file: File, path: PathBuf) {
-    let mut filelist = Vec::new();
-
     let current_dir = std::env::current_dir().expect("Failed to get current directory");
 
     // NARC
@@ -169,94 +140,41 @@ fn unpack_narc(mut file: File, path: PathBuf) {
     // Have to navigate to the start of the FNT inside of the FNTBlock manually since there
     // is no offset saved inside of the NARC header
 
-    let mut fnt_offset: u32 = 0;
+    println!("FNT contains no names, labeling files manually");
+    let mut file_index = 1;
+    for entry in narc.fat_block.entries {
+        // let mut buffer = vec![0u8; entry.end_address as usize - entry.start_address as usize];
 
-    fnt_offset += 0x1C; // seek to start of FAT
+        let buffer = &narc.img_block.data[entry.start_address as usize..entry.end_address as usize];
 
-    fnt_offset += 8 * narc.fat_block.num_files as u32; // seek past size of FAT
+        let narc_name = path.file_stem().unwrap().to_str().unwrap().to_owned();
 
-    fnt_offset += 8; // seek past FATBlock info
+        let mut final_dir = narc_name.clone();
+        final_dir.push_str("/");
 
-    file.seek(SeekFrom::Start(fnt_offset as u64)).unwrap();
+        let mut output_file_path = current_dir.clone();
+        output_file_path.push("narc_unpacked/");
+        output_file_path.push(&final_dir);
 
-    println!("fnt_offset: {:#0X}", fnt_offset);
+        std::fs::create_dir_all(&output_file_path).expect("Failed to create output file path");
 
-    iterate_narc_main_table(&mut file, fnt_offset, path.clone(), &mut filelist);
+        let mut filename = narc_name.clone();
+        filename.push_str("_");
+        filename.push_str(&file_index.to_string());
 
-    println!("Final positon: {:#0X}", file.stream_position().unwrap());
+        output_file_path.push(filename);
 
-    if filelist.len() == 0 {
-        println!("FNT contains no names, labeling files manually");
-        let mut file_index = 1;
-        for entry in narc.fat_block.entries {
-            // let mut buffer = vec![0u8; entry.end_address as usize - entry.start_address as usize];
+        println!("output filepath: {:?}", output_file_path);
 
-            let buffer = &narc.img_block.data[entry.start_address as usize..entry.end_address as usize];
+        let mut output_file = File::create(output_file_path).expect("Failed to create output file");
+        output_file.write(&buffer).expect("Failed to write data to output file");
 
-            let narc_name = path.file_stem().unwrap().to_str().unwrap().to_owned();
-
-            let mut final_dir = narc_name.clone();
-            final_dir.push_str("/");
-
-            let mut output_file_path = current_dir.clone();
-            output_file_path.push("narc_unpacked/");
-            output_file_path.push(&final_dir);
-
-            std::fs::create_dir_all(&output_file_path).expect("Failed to create output file path");
-
-            let mut filename = narc_name.clone();
-            filename.push_str("_");
-            filename.push_str(&file_index.to_string());
-
-            output_file_path.push(filename);
-
-            println!("output filepath: {:?}", output_file_path);
-
-            let mut output_file = File::create(output_file_path).expect("Failed to create output file");
-            output_file.write(&buffer).expect("Failed to write data to output file");
-
-            file_index += 1;
-        }
-    } else {
-        for i in 0..filelist.len() {
-            println!("Filename: {:?}", filelist[i]);
-            let end_address = narc.fat_block.entries[i].end_address;
-            let start_address = narc.fat_block.entries[i].start_address;
-
-            let buffer = &narc.img_block.data[start_address as usize..end_address as usize];
-
-            let mut output_file_path = current_dir.clone();
-            output_file_path.push(filelist.get(i).unwrap());
-
-            std::fs::create_dir_all(&output_file_path.parent().unwrap()).expect("Failed to create output file path");
-
-            let mut output_file = File::create(output_file_path).expect("Failed to create output file");
-            output_file.write(&buffer).expect("Failed to write data to output file");
-        }
-
-        for path in filelist.iter() {
-            let fat_entry: FileAllocationTable = file.read_le().unwrap();
-            let stored_position = file.stream_position().unwrap();
-
-            let mut buffer = vec![0u8; fat_entry.end_address as usize - fat_entry.start_address as usize];
-
-            file.seek(SeekFrom::Start(fat_entry.start_address as u64)).expect("Failed to seek to file start address");
-            file.read_exact(buffer.as_mut_slice()).expect("Failed to read file data into buffer");
-            
-            let mut output_file_path = current_dir.clone();
-            output_file_path.push(path);
-
-            std::fs::create_dir_all(&output_file_path.parent().unwrap()).expect("Failed to create output file path");
-
-            let mut output_file = File::create(output_file_path).expect("Failed to create output file");
-            output_file.write(&buffer).expect("Failed to write data to output file");
-
-            file.seek(SeekFrom::Start(stored_position)).unwrap();
-        }
+        file_index += 1;
     }
+    
 }
 
-fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, compression: NDSCompressionType) -> Result<GraphicsResource, Box<dyn Error>> {
+fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile_width: u32, compression: NDSCompressionType) -> Result<GraphicsResource, Box<dyn Error>> {
     let ncgr: NCGR = match compression {
         NDSCompressionType::None => cursor.read_le().unwrap(),
         NDSCompressionType::LZ77(file_size) => {
@@ -300,8 +218,6 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, compressio
     // let tile_count = (ncgr.rahc.tile_data_size_bytes / ncgr.rahc.tile_dimension as u32) / colors_per_byte;
     let tile_count = (ncgr.rahc.tile_data_size_bytes / 16u32) / colors_per_byte;
 
-    let image_tile_width = 16;
-
     // this was constructed via black magic
     // it does a bunch of multiplication/addition to get pixel data
     // row by row across tiles based on the given width (image_tile_width)
@@ -342,7 +258,6 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, compressio
     })
 }
 
-// fn decompress_lz77(mut file: File) -> Vec<u8> {
 fn decompress_lz77(mut file: Cursor<&[u8]>, file_size: usize) -> Vec<u8> {
     let mut decompressed_data = Vec::new();
     let mut compressed_data = vec![0u8; file_size]; 
@@ -413,16 +328,13 @@ fn decompress_lz77(mut file: Cursor<&[u8]>, file_size: usize) -> Vec<u8> {
     decompressed_data
 }
 
-// fn extract_sprites_from_narc(mut file: File, path: &Path) -> Result<(), Box<dyn Error>>{
-fn extract_sprites_from_narc(narc: nds::narc::NARC, path: &Path) -> Result<(), Box<dyn Error>>{
+fn extract_sprites_from_narc(narc: nds::narc::NARC, path: String, image_tile_width: u32) -> Result<(), Box<dyn Error>> {
     let mut palette_file: Option<nclr::NCLR> = None;
 
     let current_dir = std::env::current_dir().unwrap();
     
-    let mut output_path_base= PathBuf::new();
-    output_path_base.push(current_dir);
-    output_path_base.push("output\\");
-    output_path_base.push(path.clone());
+    let mut output_path_base= current_dir.join(ASSET_DIR);
+    output_path_base.push(path);
 
     let mut file_num = 0;
 
@@ -438,11 +350,6 @@ fn extract_sprites_from_narc(narc: nds::narc::NARC, path: &Path) -> Result<(), B
         let mut output_path = output_path_base.clone();
 
         let magic = &data[0..4];
-
-        // unwrap or continue
-        // let Ok(magic) = String::from_utf8(data[0..4].to_vec()) else {
-        //     continue;
-        // };
 
         match magic {
             b"RLCN" => {
@@ -463,7 +370,7 @@ fn extract_sprites_from_narc(narc: nds::narc::NARC, path: &Path) -> Result<(), B
                 let cursor = Cursor::new(data);
                 let palette = unpack_nclr(palette_file.as_mut().unwrap());
 
-                let Ok(graphics_resource) = unpack_ncgr(cursor, palette, NDSCompressionType::None) else {
+                let Ok(graphics_resource) = unpack_ncgr(cursor, palette, image_tile_width, NDSCompressionType::None) else {
                     continue;
                 };
 
@@ -477,13 +384,13 @@ fn extract_sprites_from_narc(narc: nds::narc::NARC, path: &Path) -> Result<(), B
                 }    
             },
 
-            // compressed sprite :(
+            // compressed sprite (only need to support lz77 right now)
             [0x10, _, _, _] => {
                 let cursor = Cursor::new(&data[0..]);
                 let mut palette_file: nclr::NCLR = File::open("K:\\Developer\\mon-rober\\7_72.RLCN").unwrap().read_le().unwrap();
                 let palette = unpack_nclr(&mut palette_file);
 
-                let graphics_resource = unpack_ncgr(cursor, palette, NDSCompressionType::LZ77(data.len())).unwrap();
+                let graphics_resource = unpack_ncgr(cursor, palette, image_tile_width, NDSCompressionType::LZ77(data.len())).unwrap();
 
                 output_path.push(file_num.to_string() + ".png");
 
@@ -504,46 +411,100 @@ fn extract_sprites_from_narc(narc: nds::narc::NARC, path: &Path) -> Result<(), B
     Ok(())
 }
 
+fn extract_sprites_from_narc_with_palette(narc: nds::narc::NARC, path: String, image_tile_width: u32, palette_index: u32) {
+    let current_dir = std::env::current_dir().unwrap();
+
+    let mut output_path_base = current_dir.join(ASSET_DIR);
+    output_path_base.push(path);
+
+    let palette_allocation_info = &narc.fat_block.entries[palette_index as usize];
+
+    let palette_data = &narc.img_block.data[palette_allocation_info.start_address as usize..palette_allocation_info.end_address as usize];
+
+    let mut cursor = Cursor::new(palette_data);
+    let mut palette_file: nclr::NCLR = cursor.read_le().unwrap();
+    let palette = unpack_nclr(&mut palette_file);
+
+    let mut file_num = 0;
+    for entry in narc.fat_block.entries {
+        let data = &narc.img_block.data[entry.start_address as usize..entry.end_address as usize];
+
+        if data.len() < 4 {
+            continue;
+        }
+
+        let mut output_path = output_path_base.clone();
+
+        let magic = &data[0..4];
+
+        match magic {
+            b"RGCN" => {
+                output_path.push(file_num.to_string() + ".png");
+
+                let graphics_resource: GraphicsResource = unpack_ncgr(cursor.clone(), palette.clone(), image_tile_width, NDSCompressionType::None).unwrap();
+
+                println!("Writing sprite file: {:?}", output_path);
+
+                if graphics_resource.height != 0 {
+                    std::fs::create_dir_all(&output_path.parent().unwrap()).unwrap();
+                    save_buffer(&output_path, &graphics_resource.data, graphics_resource.width, graphics_resource.height, image::ColorType::Rgb8).unwrap();
+                }
+            }
+
+            [0x10, _, _, _] => {
+                let cursor = Cursor::new(&data[0..]);
+                let graphics_resource = unpack_ncgr(cursor.clone(), palette.clone(), image_tile_width, NDSCompressionType::LZ77(data.len())).unwrap();
+
+                output_path.push(file_num.to_string() + ".png");
+
+                println!("Writing sprite file: {:?}", output_path);
+
+                if graphics_resource.height != 0 {
+                    std::fs::create_dir_all(&output_path.parent().unwrap()).expect("Failed to create output path(s)");
+                    save_buffer(&output_path, &graphics_resource.data, graphics_resource.width, graphics_resource.height, image::ColorType::Rgb8).expect("Failed to save buffer");
+                }
+            }
+
+            _ => {
+                continue;
+            }
+        }
+
+        file_num += 1;
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        println!("Usage: mon-rober <path>");
+        println!("Usage: mon-rober <ROM>");
         return;
     }
 
     let path = PathBuf::from(args.get(1).unwrap());
-    // let mut file = File::open(&path).unwrap();
+    let file = File::open(&path).unwrap();
 
-    // // let decompressed_data = decompress_lz77(file);
-    // let narc: nds::ncgr::NCGR = Cursor::new(decompressed_data).read_le().unwrap();
+    unpack_rom(file, &path);
 
-    // extract_sprites_from_narc(narc, &path);
+    let unpack_path = std::env::current_dir().unwrap().join("unpacked");
 
-    // return;
+    // mon icons
+    let mon_icons = unpack_path.join("a/0/0/7");
 
-    for entry in WalkDir::new(&path).into_iter().filter_map(|e| e.ok()).filter(|e| e.metadata().unwrap().is_file()) {
-        // if entry.path().to_str().unwrap().ne("unpacked\\a\\0\\0\\7") {
-        //     continue;
-        // }
+    let mon_narc: nds::narc::NARC = File::open(mon_icons).unwrap().read_le().unwrap();
 
-        let mut magic = vec![0u8; 4];
-        let mut file = File::open(entry.path()).expect("Failed to open file in input directory");
-        file.read_exact(magic.as_mut_slice()).expect("Failed to read magic of input file... is file empty?");
+    extract_sprites_from_narc(mon_narc, String::from("mon-icons"), 4).unwrap();
 
-        let Ok(magic) = String::from_utf8(magic) else {
-            continue
-        };
-
-        if magic.as_str().eq("NARC") {
-            file.seek(SeekFrom::Start(0u64)).unwrap();
-            let narc: nds::narc::NARC = file.read_le().unwrap();
-            match extract_sprites_from_narc(narc, entry.path()) {
-                Ok(()) => {},
-                Err(e) => eprintln!("Failure extracting sprite: {:?}, {}", entry.path(), e),
-            }
-        }
-    }
+    // trainer mugshots
+    let mugshots = unpack_path.join("a/2/6/7");
     
+    let mugshots_narc: nds::narc::NARC = File::open(mugshots).unwrap().read_le().unwrap();
+
+    extract_sprites_from_narc_with_palette(mugshots_narc, String::from("mugshots"), 16, 72);
+
+    // clean-up unpacked rom dir
+    std::fs::remove_dir_all(unpack_path).unwrap();
+
     return;
 }
