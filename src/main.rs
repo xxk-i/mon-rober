@@ -389,7 +389,6 @@ fn decompress_lz11(mut file: Cursor<&[u8]>, file_size: usize) -> Vec<u8> {
 
     println!("decompressed: {}, expected: {}", decompressed_data.len(), size);
     
-    panic!();
     // println!("returning data: {}", decompressed_data.len());
     // println!("{:0X?}", decompressed_data);
     decompressed_data
