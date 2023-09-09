@@ -7,6 +7,7 @@ use std::fs::File;
 use std::io::Cursor;
 use std::io::Read;
 use std::io::Write;
+use std::path::Path;
 use std::path::PathBuf;
 
 use binrw::io::Seek;
@@ -120,16 +121,41 @@ fn unpack_nclr(nclr: &mut nclr::NCLR) -> Vec<(u8, u8, u8)> {
 
     let mut converted_colors = Vec::new();
 
+    println!("{:0x}", nclr.ttlp.pallete_bit_depth);
+
     // for color in &nclr.ttlp.data {
-    for i in 0..16 {
-        // println!("{:0X}", color);
-        let color = &nclr.ttlp.data[i];
-        let r: u8 = ((color & 0b11111) * 8).try_into().unwrap();
-        let g: u8 = (((color >> 5) & 0b11111) * 8).try_into().unwrap();
-        let b: u8 = (((color >> 10) & 0b11111) * 8).try_into().unwrap();
-        // println!("{:0X}{:0X}{:0X}", r + (r / 32), g + (g / 32), b + (b / 32));
-        converted_colors.push((r,g,b));
+
+    match nclr.ttlp.pallete_bit_depth {
+        _ => {
+            for i in 0..16 {
+                // println!("{:0X}", color);
+                let color = &nclr.ttlp.data[i];
+                let r: u8 = ((color & 0b11111) * 8).try_into().unwrap();
+                let g: u8 = (((color >> 5) & 0b11111) * 8).try_into().unwrap();
+                let b: u8 = (((color >> 10) & 0b11111) * 8).try_into().unwrap();
+                // println!("{:0X}{:0X}{:0X}", r + (r / 32), g + (g / 32), b + (b / 32));
+                converted_colors.push((r,g,b));
+            }
+        },
+        // 0xA004 => {
+        //     for i in 0..16 {
+        //         let byte1 = &nclr.ttlp.data[i];
+        //         let byte2 = &nclr.ttlp.data[i + 1];
+        //         let r: u8 = color 
+        //     }
+        // },
+        // _ => println!("Unsupported palette bit depth: {:0X}", nclr.ttlp.pallete_bit_depth),
     }
+
+    // let mut palette_buffer = Vec::new();
+
+    // for i in 0..16 {
+    //     palette_buffer.push(converted_colors[i].0);
+    //     palette_buffer.push(converted_colors[i].1);
+    //     palette_buffer.push(converted_colors[i].2);
+    // }
+
+    // save_buffer(&Path::new("K:/Developer/mon-rober/output2.png"), palette_buffer.as_slice(), 16, 1, image::ColorType::Rgb8).expect("Failed to save buffer");
 
     converted_colors
 }
@@ -191,6 +217,8 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile
 
     let mut colors = Vec::new();
 
+    println!("color depth: {}", ncgr.rahc.color_depth);
+
     // index is 4 bits long, so split byte and use each index
     for palette_index in ncgr.rahc.data {
         // println!("index: {}", palette_index);
@@ -220,6 +248,8 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile
         1
     };
 
+    // println!("tilewidthX: {}", ncgr.rahc.nTilesX);
+    // println!("tilewidthY: {}", ncgr.rahc.nTilesY);
 
     // let tile_count = (ncgr.rahc.tile_data_size_bytes / ncgr.rahc.tile_dimension as u32) / colors_per_byte;
     let tile_count = (ncgr.rahc.tile_data_size_bytes / 16u32) / colors_per_byte;
@@ -227,24 +257,36 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile
     // this was constructed via black magic
     // it does a bunch of multiplication/addition to get pixel data
     // row by row across tiles based on the given width (image_tile_width)
-    for image_index in 0..(tile_count / image_tile_width) {
-        for column in 0..8 {
-            for tile_index in 0..image_tile_width {
-                for row in 0..8 {
-                    let mut color_index = 0;
-                    color_index += tile_index * 64;
-                    color_index += column * 8;
-                    color_index += image_index * 64 * image_tile_width;
-                    color_index += row; 
-                    let color = colors.get(color_index as usize).clone();
-                    match color {
-                        Some(c) => new_pixels.push(c),
-                        None => new_pixels.push(&(255, 255, 255)),
+    if ncgr.rahc.n_tiles_x != 0xFFFF {
+
+    } else {
+        for image_index in 0..(tile_count / image_tile_width) {
+            for column in 0..8 {
+                for tile_index in 0..image_tile_width {
+                    for row in 0..8 {
+                        let mut color_index = 0;
+                        color_index += tile_index * 64;
+                        color_index += column * 8;
+                        color_index += image_index * 64 * image_tile_width;
+                        color_index += row; 
+                        let color = colors.get(color_index as usize).clone();
+                        match color {
+                            Some(c) => new_pixels.push(c),
+                            None => new_pixels.push(&(255, 255, 255)),
+                        }
                     }
                 }
             }
         }
     }
+
+    // for thing in 0..(96 * 96) {
+    //     let color = colors.get(thing as usize).clone();
+    //     match color {
+    //         Some(c) => new_pixels.push(c),
+    //         None => new_pixels.push(&(255,255,255)),
+    //     }
+    // }
 
     let mut buffer= Vec::new();
 
@@ -253,6 +295,7 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile
         buffer.push(pixel.1);
         buffer.push(pixel.2);
     }
+
 
     // println!("tile count: {}\t width: {}", tile_count, image_tile_width);
 
@@ -285,6 +328,7 @@ fn decompress_lz11(mut file: Cursor<&[u8]>, file_size: usize) -> Vec<u8> {
 
             let mut len: usize = 0;
             let mut disp: usize = 0;
+            let mut disp_msb = 0;
 
             if *flag {
                 let reference = file.read_le::<u8>().unwrap();
@@ -292,42 +336,43 @@ fn decompress_lz11(mut file: Cursor<&[u8]>, file_size: usize) -> Vec<u8> {
                 // check first 4 bits of reference
                 match reference >> 4 {
                     0 => {
-                        let len_msb = ((reference & 0x0F) << 4) as usize;
+                        let len_msb = (reference << 4) as usize;
                         let next = file.read_le::<u8>().unwrap();
                         let len_lsb = (next >> 4) as usize;
-                        let disp_msb = ((next & 0xF) as usize) << 8;
-                        let disp_lsb = file.read_le::<u8>().unwrap() as usize;
 
-                        len = (len_msb | len_lsb) + 0x11;
-                        disp = disp_msb | disp_lsb;
+                        len = len_msb;
+                        len |= len_lsb;
+                        len += 0x11;
+
+                        disp = ((next & 0xF) as usize) << 8;
                     },
 
                     1 => {
                         let len_msb = ((reference & 0xF) as usize) << 12;
-                        let len_csb = (file.read_le::<u8>().unwrap() as usize) << 8;
+                        let len_csb = (file.read_le::<u8>().unwrap() as usize) << 4;
                         let next = file.read_le::<u8>().unwrap();
-                        let len_lsb = ((next & 0xF) >> 4) as usize;
-                        let disp_msb = ((next & 0xF) as usize) << 8;
-                        let disp_lsb = (file.read_le::<u8>().unwrap() as usize);
-                        
-                        len = (len_msb | len_csb | len_lsb) + 0x111;
-                        disp = disp_msb | disp_lsb;
+                        let len_lsb = (next >> 4) as usize;
+
+                        len = len_msb;
+                        len |= len_csb;
+                        len |= len_lsb;
+                        len += 0x111;
+                        disp = ((next & 0xF) as usize) << 8;
                     },
                     _ => {
                         len = ((reference >> 4) + 0x1) as usize;
-                        let disp_msb = ((reference & 0xF) as usize) << 8;
-                        let disp_lsb = file.read_le::<u8>().unwrap() as usize;
-                        disp = disp_msb | disp_lsb;;
+                        disp = ((reference & 0xF) as usize) << 8;
                     }
                 }
+
+                let disp_lsb = (file.read_le::<u8>().unwrap()) as usize;
+                disp |= disp_lsb;
 
                 let offset = decompressed_data.len() - 1 - disp as usize;
                 for i in 0..len as usize {
                     decompressed_data.push(decompressed_data[offset + i]);
                 }
                 
-                // println!("disp: {}", disp);
-                // println!("data: {:0X?}", decompressed_data);
             } else {
                 if file.stream_position().unwrap() != file_size as u64 {
                     decompressed_data.push(file.read_le::<u8>().unwrap());
@@ -336,6 +381,15 @@ fn decompress_lz11(mut file: Cursor<&[u8]>, file_size: usize) -> Vec<u8> {
         }
     }
 
+    let mut output_path = std::env::current_dir().unwrap();
+    output_path.push("decompressed.narc");
+    println!("{:?}", output_path);
+    let mut output = File::create(output_path).unwrap();
+    output.write(&decompressed_data.as_slice()).unwrap();
+
+    println!("decompressed: {}, expected: {}", decompressed_data.len(), size);
+    
+    panic!();
     // println!("returning data: {}", decompressed_data.len());
     // println!("{:0X?}", decompressed_data);
     decompressed_data
@@ -562,7 +616,7 @@ fn extract_sprites_from_narc_with_palette(narc: nds::narc::NARC, path: String, i
 
                 output_path.push(file_num.to_string() + ".png");
 
-                println!("Writing sprite file: {:?}", output_path);
+                // println!("Writing sprite file: {:?}", output_path);
 
                 if graphics_resource.height != 0 {
                     std::fs::create_dir_all(&output_path.parent().unwrap()).expect("Failed to create output path(s)");
@@ -611,7 +665,7 @@ fn main() {
 
     let mon_fulls_narc: nds::narc::NARC = File::open(mon_fulls).unwrap().read_le().unwrap();
 
-    extract_sprites_from_narc_with_palette(mon_fulls_narc, String::from("mon-fulls"),  8, 58);
+    extract_sprites_from_narc_with_palette(mon_fulls_narc, String::from("mon-fulls"),  12, 58);
 
     // clean-up unpacked rom dir
     std::fs::remove_dir_all(unpack_path).unwrap();

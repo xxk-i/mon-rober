@@ -47,10 +47,10 @@ pub struct RAHC {
     #[br(count=4)]
     pub magic: Vec<u8>,
     pub chunk_size: u32,
-    pub tile_data_size_kb: u16,
-    pub tile_dimension: u16,
+    pub n_tiles_y: u16,
+    pub n_tiles_x: u16,
     pub color_depth: u32,
-    pub padding2: u64,
+    pub padding1: u64,
     pub tile_data_size_bytes: u32,
     pub tile_data_offset: u32,
     #[br(count=tile_data_size_bytes)]
