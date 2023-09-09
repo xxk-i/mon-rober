@@ -1,16 +1,19 @@
+#![allow(arithmetic_overflow)]
+
+use std::cell::RefCell;
 use std::env;
 use std::error::Error;
 use std::fs::File;
 use std::io::Cursor;
 use std::io::Read;
 use std::io::Write;
-use std::path::Path;
 use std::path::PathBuf;
 
 use binrw::io::Seek;
 use binrw::io::SeekFrom;
 use binrw::BinReaderExt;
 
+use bitvec::slice::BitRefIter;
 use image::save_buffer;
 
 mod nds;
@@ -23,9 +26,9 @@ use nds::narc;
 use nds::ncgr::NCGR;
 use nds::nclr;
 use nds::NDSCompressionType;
-use walkdir::WalkDir;
 
 use bitvec::prelude::*;
+
 
 const ASSET_DIR: &'static str = "assets";
 
@@ -180,6 +183,9 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile
         NDSCompressionType::LZ77(file_size) => {
             Cursor::new(decompress_lz77(cursor, file_size)).read_le().unwrap()
         },
+        NDSCompressionType::LZ11(file_size) => {
+            Cursor::new(decompress_lz11(cursor, file_size)).read_le().unwrap()
+        },
         _ => unimplemented!()
     };
 
@@ -258,6 +264,93 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile
     })
 }
 
+// also poorly adapted from this solid reference:
+// https://github.com/mtheall/decompress/blob/master/source/lz11.c
+// thanks mtheall <3 ftpd is pretty good too
+
+// best description of each bit:
+// https://github.com/SciresM/FEAT/blob/master/FEAT/DSDecmp/Formats/Nitro/LZ11.cs
+fn decompress_lz11(mut file: Cursor<&[u8]>, file_size: usize) -> Vec<u8> {
+    let mut decompressed_data = Vec::new();
+    let mut compressed_data = vec![0u8; file_size];
+    file.read(compressed_data.as_mut_slice()).unwrap();
+
+    println!("{}", compressed_data[file_size - 2]);
+
+    let magic = &compressed_data[0..4];
+    let mut size: usize = magic[1] as usize + ((magic[2] as usize) << 8) + ((magic[3] as usize) << 16);
+
+    file.seek(SeekFrom::Start(4)).unwrap();
+
+    while file.stream_position().unwrap() != file_size as u64 {
+        let flags_byte = file.read_be::<u8>().unwrap();
+        let flags = flags_byte.view_bits::<Msb0>();
+        for i in 0..8u8 {
+            let flag = flags.get(i as usize).unwrap();
+
+            let mut len: usize = 0;
+            let mut disp: usize = 0;
+
+            if *flag {
+                let reference = file.read_le::<u8>().unwrap();
+
+                // check first 4 bits of reference
+                match reference >> 4 {
+                    0 => {
+                        let len_msb = ((reference & 0x0F) << 4) as usize;
+                        let next = file.read_le::<u8>().unwrap();
+                        let len_lsb = (next >> 4) as usize;
+                        let disp_msb = ((next & 0xF) as usize) << 8;
+                        let disp_lsb = file.read_le::<u8>().unwrap() as usize;
+
+                        len = (len_msb | len_lsb) + 0x11;
+                        disp = disp_msb | disp_lsb;
+                    },
+
+                    1 => {
+                        let len_msb = ((reference & 0xF) as usize) << 12;
+                        let len_csb = (file.read_le::<u8>().unwrap() as usize) << 8;
+                        let next = file.read_le::<u8>().unwrap();
+                        let len_lsb = ((next & 0xF) >> 4) as usize;
+                        let disp_msb = ((next & 0xF) as usize) << 8;
+                        let disp_lsb = (file.read_le::<u8>().unwrap() as usize);
+                        
+                        len = (len_msb | len_csb | len_lsb) + 0x111;
+                        disp = disp_msb | disp_lsb;
+                    },
+                    _ => {
+                        len = ((reference >> 4) + 0x1) as usize;
+                        let disp_msb = ((reference & 0xF) as usize) << 8;
+                        let disp_lsb = file.read_le::<u8>().unwrap() as usize;
+                        disp = disp_msb | disp_lsb;;
+                    }
+                }
+
+                let offset = decompressed_data.len() - 1 - disp as usize;
+                for i in 0..len as usize {
+                    decompressed_data.push(decompressed_data[offset + i]);
+                }
+                
+                // println!("disp: {}", disp);
+                // println!("data: {:0X?}", decompressed_data);
+            } else {
+                if file.stream_position().unwrap() != file_size as u64 {
+                    decompressed_data.push(file.read_le::<u8>().unwrap());
+                }
+            }
+        }
+    }
+
+    let mut output_path = std::env::current_dir().unwrap();
+    output_path.push("decompressed.narc");
+    let mut output = File::create(output_path).unwrap();
+    output.write(&decompressed_data.as_slice()).unwrap();
+
+    // println!("returning data: {}", decompressed_data.len());
+    // println!("{:0X?}", decompressed_data);
+    decompressed_data
+}
+
 fn decompress_lz77(mut file: Cursor<&[u8]>, file_size: usize) -> Vec<u8> {
     let mut decompressed_data = Vec::new();
     let mut compressed_data = vec![0u8; file_size]; 
@@ -319,11 +412,11 @@ fn decompress_lz77(mut file: Cursor<&[u8]>, file_size: usize) -> Vec<u8> {
         decompressed_data.push(0u8);
     }
 
-    // let mut output_path = std::env::current_dir().unwrap();
-    // output_path.push("decompressed.narc");
-    // println!("{:?}", output_path);
-    // let mut output = File::create(output_path).unwrap();
-    // output.write(&decompressed_data.as_slice()).unwrap();
+    let mut output_path = std::env::current_dir().unwrap();
+    output_path.push("decompressed.narc");
+    println!("{:?}", output_path);
+    let mut output = File::create(output_path).unwrap();
+    output.write(&decompressed_data.as_slice()).unwrap();
 
     decompressed_data
 }
@@ -451,6 +544,10 @@ fn extract_sprites_from_narc_with_palette(narc: nds::narc::NARC, path: String, i
                 }
             }
 
+            // size is zero, i guess. skip
+            [0x10, 0, 0, 0] => {}
+
+            // compressed, LZ77 variant
             [0x10, _, _, _] => {
                 let cursor = Cursor::new(&data[0..]);
                 let graphics_resource = unpack_ncgr(cursor.clone(), palette.clone(), image_tile_width, NDSCompressionType::LZ77(data.len())).unwrap();
@@ -465,9 +562,25 @@ fn extract_sprites_from_narc_with_palette(narc: nds::narc::NARC, path: String, i
                 }
             }
 
-            _ => {
-                continue;
+            // size is zero again still guessing. skip
+            [0x11, 0, 0, 0] => {}
+
+            // compressed, LZ11 variant
+            [0x11, _, _, _] => {
+                let cursor = Cursor::new(&data[0..]);
+                let graphics_resource = unpack_ncgr(cursor.clone(), palette.clone(), image_tile_width, NDSCompressionType::LZ11(data.len())).unwrap();
+
+                output_path.push(file_num.to_string() + ".png");
+
+                println!("Writing sprite file: {:?}", output_path);
+
+                if graphics_resource.height != 0 {
+                    std::fs::create_dir_all(&output_path.parent().unwrap()).expect("Failed to create output path(s)");
+                    save_buffer(&output_path, &graphics_resource.data, graphics_resource.width, graphics_resource.height, image::ColorType::Rgb8).expect("Failed to save buffer");
+                }
             }
+
+            _ => {}
         }
 
         file_num += 1;
@@ -490,18 +603,25 @@ fn main() {
     let unpack_path = std::env::current_dir().unwrap().join("unpacked");
 
     // mon icons
-    let mon_icons = unpack_path.join("a/0/0/7");
+    // let mon_icons = unpack_path.join("a/0/0/7");
 
-    let mon_narc: nds::narc::NARC = File::open(mon_icons).unwrap().read_le().unwrap();
+    // let mon_narc: nds::narc::NARC = File::open(mon_icons).unwrap().read_le().unwrap();
 
-    extract_sprites_from_narc(mon_narc, String::from("mon-icons"), 4).unwrap();
+    // extract_sprites_from_narc(mon_narc, String::from("mon-icons"), 4).unwrap();
 
-    // trainer mugshots
-    let mugshots = unpack_path.join("a/2/6/7");
+    // // trainer mugshots
+    // let mugshots = unpack_path.join("a/2/6/7");
     
-    let mugshots_narc: nds::narc::NARC = File::open(mugshots).unwrap().read_le().unwrap();
+    // let mugshots_narc: nds::narc::NARC = File::open(mugshots).unwrap().read_le().unwrap();
 
-    extract_sprites_from_narc_with_palette(mugshots_narc, String::from("mugshots"), 16, 72);
+    // extract_sprites_from_narc_with_palette(mugshots_narc, String::from("mugshots"), 16, 72);
+
+    // mon fulls
+    let mon_fulls = unpack_path.join("a/0/0/4");
+
+    let mon_fulls_narc: nds::narc::NARC = File::open(mon_fulls).unwrap().read_le().unwrap();
+
+    extract_sprites_from_narc_with_palette(mon_fulls_narc, String::from("mon-fulls"),  8, 58);
 
     // clean-up unpacked rom dir
     std::fs::remove_dir_all(unpack_path).unwrap();
