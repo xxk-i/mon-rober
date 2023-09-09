@@ -264,18 +264,13 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile
     })
 }
 
-// also poorly adapted from this solid reference:
-// https://github.com/mtheall/decompress/blob/master/source/lz11.c
-// thanks mtheall <3 ftpd is pretty good too
-
-// best description of each bit:
-// https://github.com/SciresM/FEAT/blob/master/FEAT/DSDecmp/Formats/Nitro/LZ11.cs
+// tried to use DSDecomp's comment structure but like 20% sure its wrong
+// used the original instead after figuring out how to actually read it
+// http://problemkaputt.de/gbatek-lz-decompression-functions.htm
 fn decompress_lz11(mut file: Cursor<&[u8]>, file_size: usize) -> Vec<u8> {
     let mut decompressed_data = Vec::new();
     let mut compressed_data = vec![0u8; file_size];
     file.read(compressed_data.as_mut_slice()).unwrap();
-
-    println!("{}", compressed_data[file_size - 2]);
 
     let magic = &compressed_data[0..4];
     let mut size: usize = magic[1] as usize + ((magic[2] as usize) << 8) + ((magic[3] as usize) << 16);
@@ -340,11 +335,6 @@ fn decompress_lz11(mut file: Cursor<&[u8]>, file_size: usize) -> Vec<u8> {
             }
         }
     }
-
-    let mut output_path = std::env::current_dir().unwrap();
-    output_path.push("decompressed.narc");
-    let mut output = File::create(output_path).unwrap();
-    output.write(&decompressed_data.as_slice()).unwrap();
 
     // println!("returning data: {}", decompressed_data.len());
     // println!("{:0X?}", decompressed_data);
@@ -412,11 +402,11 @@ fn decompress_lz77(mut file: Cursor<&[u8]>, file_size: usize) -> Vec<u8> {
         decompressed_data.push(0u8);
     }
 
-    let mut output_path = std::env::current_dir().unwrap();
-    output_path.push("decompressed.narc");
-    println!("{:?}", output_path);
-    let mut output = File::create(output_path).unwrap();
-    output.write(&decompressed_data.as_slice()).unwrap();
+    // let mut output_path = std::env::current_dir().unwrap();
+    // output_path.push("decompressed.narc");
+    // println!("{:?}", output_path);
+    // let mut output = File::create(output_path).unwrap();
+    // output.write(&decompressed_data.as_slice()).unwrap();
 
     decompressed_data
 }
@@ -562,7 +552,7 @@ fn extract_sprites_from_narc_with_palette(narc: nds::narc::NARC, path: String, i
                 }
             }
 
-            // size is zero again still guessing. skip
+            // size is zero again, still guessing. skip
             [0x11, 0, 0, 0] => {}
 
             // compressed, LZ11 variant
