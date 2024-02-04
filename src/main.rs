@@ -121,7 +121,7 @@ fn unpack_nclr(nclr: &mut nclr::NCLR) -> Vec<(u8, u8, u8)> {
 
     let mut converted_colors = Vec::new();
 
-    println!("{:0x}", nclr.ttlp.pallete_bit_depth);
+    // println!("{:0x}", nclr.ttlp.pallete_bit_depth);
 
     // for color in &nclr.ttlp.data {
 
@@ -203,7 +203,7 @@ fn unpack_narc(mut file: File, path: PathBuf) {
     
 }
 
-fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile_width: u32, compression: NDSCompressionType) -> Result<GraphicsResource, Box<dyn Error>> {
+fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile_width: u32, compression: NDSCompressionType) -> Option<GraphicsResource> {
     let ncgr: NCGR = match compression {
         NDSCompressionType::None => cursor.read_le().unwrap(),
         NDSCompressionType::LZ77(file_size) => {
@@ -217,7 +217,7 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile
 
     let mut colors = Vec::new();
 
-    println!("color depth: {}", ncgr.rahc.color_depth);
+    // println!("color depth: {}", ncgr.rahc.color_depth);
 
     // index is 4 bits long, so split byte and use each index
     for palette_index in ncgr.rahc.data {
@@ -248,18 +248,53 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile
         1
     };
 
+    if ncgr.rahc.n_tiles_x == 0xFFFF {
+        return None;
+    }
+
     // println!("tilewidthX: {}", ncgr.rahc.nTilesX);
     // println!("tilewidthY: {}", ncgr.rahc.nTilesY);
 
     // let tile_count = (ncgr.rahc.tile_data_size_bytes / ncgr.rahc.tile_dimension as u32) / colors_per_byte;
     let tile_count = (ncgr.rahc.tile_data_size_bytes / 16u32) / colors_per_byte;
 
+    let mut width = 0;
+    let mut height = 0;
+
     // this was constructed via black magic
     // it does a bunch of multiplication/addition to get pixel data
     // row by row across tiles based on the given width (image_tile_width)
-    if ncgr.rahc.n_tiles_x != 0xFFFF {
+    if ncgr.rahc.n_tiles_x == 0xFFFF {
+        let num_pix = (ncgr.rahc.tile_data_size_bytes * 8) / ncgr.rahc.color_depth;
+        if ((num_pix as f64).sqrt() as u64).pow(2) == num_pix as u64 {
+            width = (num_pix as f32).sqrt() as u32;
+            height = width;
+        } else {
+            width = if num_pix < 0x100 {
+                num_pix
+            } else {
+                0x100
+            };
 
+            height = num_pix / width;
+        }
+
+        let size = width * height;
+
+        for i in 0..size {
+            let color = colors.get(i as usize).clone();
+            match color {
+                Some(c) => new_pixels.push(c),
+                None => new_pixels.push(&(255,255,255)),
+            }
+        }
+
+        // width = ncgr.rahc.tile_data_size_bytes / (image_tile_width * 8);
+        // height = ncgr.rahc.tile_data_size_bytes / width;
     } else {
+        width = ncgr.rahc.n_tiles_x as u32 * 8;
+        height = ncgr.rahc.n_tiles_y as u32 * 8;
+
         for image_index in 0..(tile_count / image_tile_width) {
             for column in 0..8 {
                 for tile_index in 0..image_tile_width {
@@ -280,13 +315,7 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile
         }
     }
 
-    // for thing in 0..(96 * 96) {
-    //     let color = colors.get(thing as usize).clone();
-    //     match color {
-    //         Some(c) => new_pixels.push(c),
-    //         None => new_pixels.push(&(255,255,255)),
-    //     }
-    // }
+    // println!("{}", ncgr.rahc.n_tiles_x);
 
     let mut buffer= Vec::new();
 
@@ -300,11 +329,13 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile
     // println!("tile count: {}\t width: {}", tile_count, image_tile_width);
 
     // save_buffer(&Path::new("K:/Developer/mon-rober/output2.png"), buffer.as_slice(), 8 * image_tile_width as u32, (tile_count / image_tile_width as u32) * 8 as u32, image::ColorType::Rgb8).expect("Failed to save buffer");
-    Ok(GraphicsResource {
-        width: 8 * image_tile_width as u32,
-        height: (tile_count / image_tile_width as u32) * 8,
-        data: buffer,
-    })
+    // Ok(GraphicsResource {
+    //     width: 8 * image_tile_width as u32,
+    //     height: (tile_count / image_tile_width as u32) * 8,
+    //     data: buffer,
+    // })
+    // Some(GraphicsResource { width: ncgr.rahc.n_tiles_x as u32 * 8, height: ncgr.rahc.n_tiles_y as u32 * 8, data:  buffer})
+    Some(GraphicsResource { width, height, data: buffer })
 }
 
 // tried to use DSDecomp's comment structure but like 20% sure its wrong
@@ -381,13 +412,15 @@ fn decompress_lz11(mut file: Cursor<&[u8]>, file_size: usize) -> Vec<u8> {
         }
     }
 
-    let mut output_path = std::env::current_dir().unwrap();
-    output_path.push("decompressed.narc");
-    println!("{:?}", output_path);
-    let mut output = File::create(output_path).unwrap();
-    output.write(&decompressed_data.as_slice()).unwrap();
+    // let mut output_path = std::env::current_dir().unwrap();
+    // output_path.push("decompressed.narc");
+    // println!("{:?}", output_path);
+    // let mut output = File::create(output_path).unwrap();
+    // output.write(&decompressed_data.as_slice()).unwrap();
 
-    println!("decompressed: {}, expected: {}", decompressed_data.len(), size);
+    if decompressed_data.len() != size {
+        println!("decompressed: {}, expected: {}", decompressed_data.len(), size);
+    }
     
     // println!("returning data: {}", decompressed_data.len());
     // println!("{:0X?}", decompressed_data);
@@ -506,8 +539,9 @@ fn extract_sprites_from_narc(narc: nds::narc::NARC, path: String, image_tile_wid
                 let cursor = Cursor::new(data);
                 let palette = unpack_nclr(palette_file.as_mut().unwrap());
 
-                let Ok(graphics_resource) = unpack_ncgr(cursor, palette, image_tile_width, NDSCompressionType::None) else {
-                    continue;
+                let graphics_resource = match unpack_ncgr(cursor, palette, image_tile_width, NDSCompressionType::None)  {
+                    Some(g) => g,
+                    None => break,
                 };
 
                 output_path.push(file_num.to_string() + ".png");
@@ -593,6 +627,10 @@ fn extract_sprites_from_narc_with_palette(narc: nds::narc::NARC, path: String, i
             // compressed, LZ77 variant
             [0x10, _, _, _] => {
                 let cursor = Cursor::new(&data[0..]);
+                // let graphics_resource = match unpack_ncgr(cursor.clone(), palette.clone(), image_tile_width, NDSCompressionType::LZ77(data.len())) {
+                //     Ok(g) => g,
+                //     None => break,.
+                // };
                 let graphics_resource = unpack_ncgr(cursor.clone(), palette.clone(), image_tile_width, NDSCompressionType::LZ77(data.len())).unwrap();
 
                 output_path.push(file_num.to_string() + ".png");
@@ -611,11 +649,14 @@ fn extract_sprites_from_narc_with_palette(narc: nds::narc::NARC, path: String, i
             // compressed, LZ11 variant
             [0x11, _, _, _] => {
                 let cursor = Cursor::new(&data[0..]);
-                let graphics_resource = unpack_ncgr(cursor.clone(), palette.clone(), image_tile_width, NDSCompressionType::LZ11(data.len())).unwrap();
+                let graphics_resource = match unpack_ncgr(cursor.clone(), palette.clone(), image_tile_width, NDSCompressionType::LZ11(data.len())) {
+                    Some(g) => g,
+                    None => break,
+                };
 
                 output_path.push(file_num.to_string() + ".png");
 
-                // println!("Writing sprite file: {:?}", output_path);
+                println!("Writing sprite file: {:?}", output_path);
 
                 if graphics_resource.height != 0 {
                     std::fs::create_dir_all(&output_path.parent().unwrap()).expect("Failed to create output path(s)");
@@ -664,7 +705,7 @@ fn main() {
 
     let mon_fulls_narc: nds::narc::NARC = File::open(mon_fulls).unwrap().read_le().unwrap();
 
-    extract_sprites_from_narc_with_palette(mon_fulls_narc, String::from("mon-fulls"),  12, 58);
+    extract_sprites_from_narc_with_palette(mon_fulls_narc, String::from("mon-fulls"),  32, 58);
 
     // clean-up unpacked rom dir
     std::fs::remove_dir_all(unpack_path).unwrap();
