@@ -216,6 +216,7 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile
     };
 
     let mut colors = Vec::new();
+    let mut tmp = Vec::new();
 
     // println!("color depth: {}", ncgr.rahc.color_depth);
 
@@ -225,15 +226,26 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile
 
         let lower_bits = palette_index & 0b00001111;
         let upper_bits = palette_index >> 4;
+        colors.push(palette[lower_bits as usize]);
+        colors.push(palette[upper_bits as usize]);
+        tmp.push(lower_bits);
+        tmp.push(upper_bits);
 
         // println!("lower_bits: {}", lower_bits);
         // println!("upper_bits: {}", upper_bits);
 
-        colors.push(palette[lower_bits as usize]);
-        colors.push(palette[upper_bits as usize]);
+        // let lower = palette[lower_bits as usize].clone();
+        // let upper = palette[upper_bits as usize].clone();
+        // colors.push(lower.0);
+        // colors.push(lower.1);
+        // colors.push(lower.2);
+        // colors.push(upper.0);
+        // colors.push(upper.1);
+        // colors.push(upper.2);
+
     }
 
-    let mut new_pixels = Vec::new();
+    // let mut new_pixels = Vec::new();
 
     // 512 bytes, 1024 colors
     // each tile is 32 bytes, 64 colors
@@ -258,71 +270,70 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile
     // let tile_count = (ncgr.rahc.tile_data_size_bytes / ncgr.rahc.tile_dimension as u32) / colors_per_byte;
     let tile_count = (ncgr.rahc.tile_data_size_bytes / 16u32) / colors_per_byte;
 
-    let mut width = 0;
-    let mut height = 0;
+    let width;
+    let height;
 
     // this was constructed via black magic
     // it does a bunch of multiplication/addition to get pixel data
     // row by row across tiles based on the given width (image_tile_width)
     if ncgr.rahc.n_tiles_x == 0xFFFF {
-        let num_pix = (ncgr.rahc.tile_data_size_bytes * 8) / ncgr.rahc.color_depth;
-        if ((num_pix as f64).sqrt() as u64).pow(2) == num_pix as u64 {
-            width = (num_pix as f32).sqrt() as u32;
-            height = width;
-        } else {
-            width = if num_pix < 0x100 {
-                num_pix
-            } else {
-                0x100
-            };
-
-            height = num_pix / width;
-        }
-
-        let size = width * height;
-
-        for i in 0..size {
-            let color = colors.get(i as usize).clone();
-            match color {
-                Some(c) => new_pixels.push(c),
-                None => new_pixels.push(&(255,255,255)),
-            }
-        }
-
-        // width = ncgr.rahc.tile_data_size_bytes / (image_tile_width * 8);
-        // height = ncgr.rahc.tile_data_size_bytes / width;
+        width = ncgr.rahc.tile_data_size_bytes / (image_tile_width * 8);
+        height = ncgr.rahc.tile_data_size_bytes / width;
     } else {
         width = ncgr.rahc.n_tiles_x as u32 * 8;
         height = ncgr.rahc.n_tiles_y as u32 * 8;
+    }
 
-        for image_index in 0..(tile_count / image_tile_width) {
-            for column in 0..8 {
-                for tile_index in 0..image_tile_width {
-                    for row in 0..8 {
-                        let mut color_index = 0;
-                        color_index += tile_index * 64;
-                        color_index += column * 8;
-                        color_index += image_index * 64 * image_tile_width;
-                        color_index += row; 
-                        let color = colors.get(color_index as usize).clone();
-                        match color {
-                            Some(c) => new_pixels.push(c),
-                            None => new_pixels.push(&(255, 255, 255)),
-                        }
-                    }
-                }
-            }
+    // println!("{}", ncgr.rahc.data.len());
+    // println!("{}", height);
+    if width != 96 {
+        return None;
+    }
+    let mut pixels = [[0u8; 96]; 96];
+    let mut i = 0;
+    for y in 0..(height / 8) {
+    for x in 0..(width / 8) {
+        for ty in 0..8 {
+        for tx in 0..8 {
+            let cy = y * 8 + ty;
+            let cx = x * 8 + tx;
+            pixels[cy as usize][cx as usize] = tmp.get(i).unwrap().clone();
+            i += 1;
+        }
         }
     }
+    }
+
+    // for image_index in 0..(tile_count / image_tile_width) {
+    //     for column in 0..8 {
+    //         for tile_index in 0..image_tile_width {
+    //             for row in 0..8 {
+    //                 let mut color_index = 0;
+    //                 color_index += tile_index * 64;
+    //                 color_index += column * 8;
+    //                 color_index += image_index * 64 * image_tile_width;
+    //                 color_index += row; 
+    //                 let color = colors.get(color_index as usize).clone();
+    //                 match color {
+    //                     Some(c) => new_pixels.push(c),
+    //                     None => new_pixels.push(&(255, 255, 255)),
+    //                 }
+    //             }
+    //         }
+    //     }
+    // }
 
     // println!("{}", ncgr.rahc.n_tiles_x);
 
     let mut buffer= Vec::new();
 
-    for pixel in new_pixels {
-        buffer.push(pixel.0);
-        buffer.push(pixel.1);
-        buffer.push(pixel.2);
+    for i in pixels {
+        for pixel in i {
+            let color = palette.get(pixel as usize).unwrap();
+            buffer.push(color.0);
+            buffer.push(color.1);
+            buffer.push(color.2);
+        }
     }
 
 
@@ -651,14 +662,14 @@ fn extract_sprites_from_narc_with_palette(narc: nds::narc::NARC, path: String, i
                 let cursor = Cursor::new(&data[0..]);
                 let graphics_resource = match unpack_ncgr(cursor.clone(), palette.clone(), image_tile_width, NDSCompressionType::LZ11(data.len())) {
                     Some(g) => g,
-                    None => break,
+                    None => continue,
                 };
 
                 output_path.push(file_num.to_string() + ".png");
 
                 println!("Writing sprite file: {:?}", output_path);
 
-                if graphics_resource.height != 0 {
+                if graphics_resource.height != 0  && graphics_resource.data.len() != 0 {
                     std::fs::create_dir_all(&output_path.parent().unwrap()).expect("Failed to create output path(s)");
                     save_buffer(&output_path, &graphics_resource.data, graphics_resource.width, graphics_resource.height, image::ColorType::Rgb8).expect("Failed to save buffer");
                 }
@@ -705,7 +716,8 @@ fn main() {
 
     let mon_fulls_narc: nds::narc::NARC = File::open(mon_fulls).unwrap().read_le().unwrap();
 
-    extract_sprites_from_narc_with_palette(mon_fulls_narc, String::from("mon-fulls"),  32, 58);
+    extract_sprites_from_narc_with_palette(mon_fulls_narc, String::from("mon-fulls"), 8, 58);
+
 
     // clean-up unpacked rom dir
     std::fs::remove_dir_all(unpack_path).unwrap();
