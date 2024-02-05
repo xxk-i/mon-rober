@@ -304,6 +304,64 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile
     }
     }
 
+    let mut sorted_pixels = [[0u8; 96]; 96];
+
+    // move groups of 32x8 tiles from one index to another
+    fn move_pixels(src: &mut [[u8;96]; 96], dst: &mut [[u8;96]; 96], x: usize, y: usize) {
+        let x = x - 1;
+        let y = y - 1;
+
+        let row = y / 3;
+        let column = y % 3;
+        let row2 = x / 3;
+        let column2 = x % 3;
+
+        for i in 0..8 {
+            for j in 0..32 {
+                dst[row * 8 + i][column * 32 + j] = src[row2 * 8 + i][column2 * 32 + j];
+            }
+        }
+    }
+
+    // this avoids parsing NCER which does god knows to the tiles and replaces them
+    // INSTEAD, let's just move the tiles ourselves!! oh good god!
+    move_pixels(&mut pixels, &mut sorted_pixels, 1, 1  );
+    move_pixels(&mut pixels, &mut sorted_pixels, 2, 2  );
+    move_pixels(&mut pixels, &mut sorted_pixels, 3, 4  );
+    move_pixels(&mut pixels, &mut sorted_pixels, 4, 5  );
+    move_pixels(&mut pixels, &mut sorted_pixels, 5, 7  );
+    move_pixels(&mut pixels, &mut sorted_pixels, 6, 8  );
+    move_pixels(&mut pixels, &mut sorted_pixels, 7, 10 );
+    move_pixels(&mut pixels, &mut sorted_pixels, 8, 11 );
+    move_pixels(&mut pixels, &mut sorted_pixels, 9, 13 );
+    move_pixels(&mut pixels, &mut sorted_pixels, 10, 14);
+    move_pixels(&mut pixels, &mut sorted_pixels, 11, 16);
+    move_pixels(&mut pixels, &mut sorted_pixels, 12, 17);
+    move_pixels(&mut pixels, &mut sorted_pixels, 13, 19);
+    move_pixels(&mut pixels, &mut sorted_pixels, 14, 20);
+    move_pixels(&mut pixels, &mut sorted_pixels, 15, 22);
+    move_pixels(&mut pixels, &mut sorted_pixels, 16, 23);
+    move_pixels(&mut pixels, &mut sorted_pixels, 17, 3 );
+    move_pixels(&mut pixels, &mut sorted_pixels, 18, 6 );
+    move_pixels(&mut pixels, &mut sorted_pixels, 19, 9 );
+    move_pixels(&mut pixels, &mut sorted_pixels, 20, 12);
+    move_pixels(&mut pixels, &mut sorted_pixels, 21, 15);
+    move_pixels(&mut pixels, &mut sorted_pixels, 22, 18);
+    move_pixels(&mut pixels, &mut sorted_pixels, 23, 21);
+    move_pixels(&mut pixels, &mut sorted_pixels, 24, 24);
+    move_pixels(&mut pixels, &mut sorted_pixels, 25, 25);
+    move_pixels(&mut pixels, &mut sorted_pixels, 26, 26);
+    move_pixels(&mut pixels, &mut sorted_pixels, 27, 28);
+    move_pixels(&mut pixels, &mut sorted_pixels, 28, 29);
+    move_pixels(&mut pixels, &mut sorted_pixels, 29, 31);
+    move_pixels(&mut pixels, &mut sorted_pixels, 30, 32);
+    move_pixels(&mut pixels, &mut sorted_pixels, 31, 35);
+    move_pixels(&mut pixels, &mut sorted_pixels, 32, 34);
+    move_pixels(&mut pixels, &mut sorted_pixels, 33, 27);
+    move_pixels(&mut pixels, &mut sorted_pixels, 34, 30);
+    move_pixels(&mut pixels, &mut sorted_pixels, 35, 33);
+    move_pixels(&mut pixels, &mut sorted_pixels, 36, 36);
+
     // for image_index in 0..(tile_count / image_tile_width) {
     //     for column in 0..8 {
     //         for tile_index in 0..image_tile_width {
@@ -327,7 +385,7 @@ fn unpack_ncgr(mut cursor: Cursor<&[u8]>, palette: Vec<(u8, u8, u8)>, image_tile
 
     let mut buffer= Vec::new();
 
-    for i in pixels {
+    for i in sorted_pixels {
         for pixel in i {
             let color = palette.get(pixel as usize).unwrap();
             buffer.push(color.0);
