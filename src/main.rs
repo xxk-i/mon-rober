@@ -1,7 +1,6 @@
 #![allow(arithmetic_overflow)]
 
 use std::env;
-use std::error::Error;
 use std::fs::File;
 use std::io::Cursor;
 use std::io::Read;
@@ -15,6 +14,7 @@ use binrw::BinReaderExt;
 use image::save_buffer;
 
 mod nds;
+use nds::nclr::NCLR;
 use nds::NDS;
 use nds::FNTDirectoryMainTable;
 use nds::FNTSubtable;
@@ -22,10 +22,34 @@ use nds::SubtableEntry;
 use nds::FileAllocationTable;
 use nds::ncgr::NCGR;
 use nds::nclr;
-use nds::NDSCompressionType;
 
 const ASSET_DIR: &'static str = "assets";
 
+// "oriented" == front or back
+struct MonOrientedSpriteSet {
+    male: NCGR,
+    female: NCGR,
+    male_parts: NCGR,
+    female_parts: NCGR,
+    // ncer: Vec<u8>,
+    // nanr: Vec<u8>,
+    // nmcr: Vec<u8>,
+    // nmar: Vec<u8>,
+    // unknown: Vec<u8>,
+}
+
+struct MonSpritesEntry {
+    front: MonOrientedSpriteSet,
+    back: MonOrientedSpriteSet,
+    normal_palette: NCLR,
+    shiny_palette: NCLR,
+}
+
+impl MonSpritesEntry {
+    pub fn write() {
+
+    }
+}
 
 fn iterate_main_table(file: &mut File, fnt_offset: u32, subtable_offset: u32, path: PathBuf, filelist: &mut Vec<PathBuf>) {
     file.seek(SeekFrom::Start(subtable_offset as u64)).unwrap();
@@ -98,93 +122,7 @@ fn unpack_rom(mut file: File, path: &PathBuf) {
     }
 }
 
-/*
-fn extract_sprites_from_narc(narc: nds::narc::NARC, path: String, image_tile_width: u32) -> Result<(), Box<dyn Error>> {
-    let mut palette_file: Option<nclr::NCLR> = None;
-
-    let current_dir = std::env::current_dir().unwrap();
-    
-    let mut output_path_base= current_dir.join(ASSET_DIR);
-    output_path_base.push(path);
-
-    let mut file_num = 0;
-
-    // these NARC can contain a tree for filenames but for this game, they don't <3
-    // skip to FAT and just dump data to generic filenames
-    for entry in narc.fat_block.entries {
-        let data = &narc.img_block.data[entry.start_address as usize..entry.end_address as usize];
-
-        if data.len() < 4 {
-            continue;
-        }
-
-        let mut output_path = output_path_base.clone();
-
-        let magic = &data[0..4];
-
-        match magic {
-            b"RLCN" => {
-                if palette_file.is_some() {
-                    continue;
-                } else {
-                    let mut cursor = Cursor::new(data);
-                    palette_file = Some(cursor.read_le().unwrap());
-                }
-            },
-
-            b"RGCN" => {
-                if palette_file.is_none() {
-                    println!("Graphics resource found but missing palette; skipping...");
-                    continue;
-                }
-
-                let cursor = Cursor::new(data);
-                let palette = unpack_nclr(palette_file.as_mut().unwrap());
-
-                let graphics_resource = match unpack_ncgr(cursor, palette, image_tile_width, NDSCompressionType::None)  {
-                    Some(g) => g,
-                    None => break,
-                };
-
-                output_path.push(file_num.to_string() + ".png");
-
-                println!("Writing sprite file: {:?}", output_path);
-
-                if graphics_resource.height != 0 {
-                    std::fs::create_dir_all(&output_path.parent().unwrap()).expect("Failed to create output path(s)");
-                    save_buffer(&output_path, &graphics_resource.data, graphics_resource.width, graphics_resource.height, image::ColorType::Rgb8).expect("Failed to save buffer");
-                }    
-            },
-
-            // compressed sprite (only need to support lz77 right now)
-            [0x10, _, _, _] => {
-                let cursor = Cursor::new(&data[0..]);
-                let mut palette_file: nclr::NCLR = File::open("K:\\Developer\\mon-rober\\7_72.RLCN").unwrap().read_le().unwrap();
-                let palette = unpack_nclr(&mut palette_file);
-
-                let graphics_resource = unpack_ncgr(cursor, palette, image_tile_width, NDSCompressionType::LZ77(data.len())).unwrap();
-
-                output_path.push(file_num.to_string() + ".png");
-
-                println!("Writing sprite file: {:?}", output_path);
-
-                if graphics_resource.height != 0 {
-                    std::fs::create_dir_all(&output_path.parent().unwrap()).expect("Failed to create output path(s)");
-                    save_buffer(&output_path, &graphics_resource.data, graphics_resource.width, graphics_resource.height, image::ColorType::Rgb8).expect("Failed to save buffer");
-                }    
-            }
-
-            _ => println!("Unknown type, skipping ({:?})", magic),
-        }
-
-        file_num += 1;
-    }
-
-    Ok(())
-}
-*/
-
-fn extract_sprites_from_narc_with_palette(narc: nds::narc::NARC, path: String, image_tile_width: u32, palette_index: u32) {
+fn extract_sprites_from_narc_with_palette(narc: nds::narc::NARC, path: String, palette_index: u32) {
     let current_dir = std::env::current_dir().unwrap();
 
     let mut output_path_base = current_dir.join(ASSET_DIR);
@@ -215,7 +153,7 @@ fn extract_sprites_from_narc_with_palette(narc: nds::narc::NARC, path: String, i
                 output_path.push(file_num.to_string() + ".png");
 
                 let ncgr: NCGR = cursor.read_le().unwrap();
-                let graphics_resource = ncgr.unpack_trainer_sprite(&palette, image_tile_width).unwrap();
+                let graphics_resource = ncgr.unpack_trainer_sprite(&palette).unwrap();
                 // let graphics_resource: GraphicsResource = unpack_ncgr(cursor.clone(), palette.clone(), image_tile_width, NDSCompressionType::None).unwrap();
 
                 println!("Writing sprite file: {:?}", output_path);
@@ -232,7 +170,7 @@ fn extract_sprites_from_narc_with_palette(narc: nds::narc::NARC, path: String, i
             // compressed, LZ77 variant
             [0x10, _, _, _] => {
                 let ncgr: NCGR = Cursor::new(nds::decompress_lz77(Cursor::new(&data[0..]) , data.len())).read_le().unwrap();
-                let graphics_resource = ncgr.unpack_trainer_sprite(&palette, image_tile_width).unwrap();
+                let graphics_resource = ncgr.unpack_trainer_sprite(&palette).unwrap();
 
                 output_path.push(file_num.to_string() + ".png");
 
@@ -250,7 +188,7 @@ fn extract_sprites_from_narc_with_palette(narc: nds::narc::NARC, path: String, i
             // compressed, LZ11 variant
             [0x11, _, _, _] => {
                 let ncgr: NCGR = Cursor::new(nds::decompress_lz11(Cursor::new(&data[0..]) , data.len())).read_le().unwrap();
-                let graphics_resource = ncgr.unpack_trainer_sprite(&palette, image_tile_width).unwrap();
+                let graphics_resource = ncgr.unpack_trainer_sprite(&palette).unwrap();
 
                 output_path.push(file_num.to_string() + ".png");
 
@@ -266,6 +204,131 @@ fn extract_sprites_from_narc_with_palette(narc: nds::narc::NARC, path: String, i
         }
 
         file_num += 1;
+    }
+}
+
+fn extract_mon_fulls(narc: nds::narc::NARC, output_folder: String) {
+    let current_dir = std::env::current_dir().unwrap();
+
+    let mut output_path_base = current_dir.join(ASSET_DIR);
+    output_path_base.push(output_folder);
+
+    // 751 pokemon, 20 files per
+    for i in 0..751 {
+        let output_path = output_path_base.join(i.to_string());
+
+        let mon_sprites_entry = MonSpritesEntry {
+            front: MonOrientedSpriteSet {
+                male: narc.get_decompressed_entry(i * 20 + 0 as usize).read_le().unwrap(),
+                female: {
+                    let mut data = narc.get_decompressed_entry(i * 20 + 1 as usize);
+                    if data.get_ref().len() == 0 {
+                        narc.get_decompressed_entry(i * 20 + 0 as usize).read_le().unwrap()
+                    } else {
+                        data.read_le().unwrap()
+                    }
+                },
+                male_parts: narc.get_decompressed_entry(i * 20 + 2 as usize).read_le().unwrap(),
+                female_parts: { 
+                    let mut data = narc.get_decompressed_entry(i * 20 + 3 as usize);
+                    if data.get_ref().len() == 0 {
+                        narc.get_decompressed_entry(i * 20 + 2 as usize).read_le().unwrap()
+                    } else {
+                        data.read_le().unwrap()
+                    }
+                }
+            },
+            back: MonOrientedSpriteSet {
+                male: narc.get_decompressed_entry(i * 20 + 9 as usize).read_le().unwrap(),
+                female: {
+                    let mut data = narc.get_decompressed_entry(i * 20 + 10 as usize);
+                    if data.get_ref().len() == 0 {
+                        narc.get_decompressed_entry(i * 20 + 9 as usize).read_le().unwrap()
+                    } else {
+                        data.read_le().unwrap()
+                    }
+                },
+                male_parts: narc.get_decompressed_entry(i * 20 + 11 as usize).read_le().unwrap(),
+                female_parts: { 
+                    let mut data = narc.get_decompressed_entry(i * 20 + 12 as usize);
+                    if data.get_ref().len() == 0 {
+                        narc.get_decompressed_entry(i * 20 + 11 as usize).read_le().unwrap()
+                    } else {
+                        data.read_le().unwrap()
+                    }
+                }
+            },
+            normal_palette: narc.get_decompressed_entry(i * 20 + 18 as usize).read_le().unwrap(),
+            shiny_palette: narc.get_decompressed_entry(i * 20 + 19 as usize).read_le().unwrap(),
+        };
+
+        let normal_path = output_path.join("normal");
+
+        if let Some(graphics_resource) = mon_sprites_entry.front.male.unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
+            graphics_resource.write(normal_path.join("male_front.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.front.female.unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
+            graphics_resource.write(normal_path.join("female_front.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.front.male_parts.unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
+            graphics_resource.write(normal_path.join("male_front_parts.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.front.female_parts.unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
+            graphics_resource.write(normal_path.join("female_front_parts.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.back.male.unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
+            graphics_resource.write(normal_path.join("male_back.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.back.female.unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
+            graphics_resource.write(normal_path.join("female_back.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.back.male_parts.unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
+            graphics_resource.write(normal_path.join("male_back_parts.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.back.female_parts.unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
+            graphics_resource.write(normal_path.join("female_back_parts.png"));
+        }
+
+        let shiny_path = output_path.join("shiny");
+
+        if let Some(graphics_resource) = mon_sprites_entry.front.male.unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
+            graphics_resource.write(shiny_path.join("male_front.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.front.female.unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
+            graphics_resource.write(shiny_path.join("female_front.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.front.male_parts.unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
+            graphics_resource.write(shiny_path.join("male_front_parts.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.front.female_parts.unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
+            graphics_resource.write(shiny_path.join("female_front_parts.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.back.male.unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
+            graphics_resource.write(shiny_path.join("male_back.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.back.female.unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
+            graphics_resource.write(shiny_path.join("female_back.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.back.male_parts.unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
+            graphics_resource.write(shiny_path.join("male_back_parts.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.back.female_parts.unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
+            graphics_resource.write(shiny_path.join("female_back_parts.png"));
+        }
     }
 }
 
@@ -292,19 +355,22 @@ fn main() {
     // extract_sprites_from_narc(mon_narc, String::from("mon-icons"), 4).unwrap();
 
     // // trainer mugshots
-    let mugshots = unpack_path.join("a/2/6/7");
+    // let mugshots = unpack_path.join("a/2/6/7");
     
-    let mugshots_narc: nds::narc::NARC = File::open(mugshots).unwrap().read_le().unwrap();
+    // let mugshots_narc: nds::narc::NARC = File::open(mugshots).unwrap().read_le().unwrap();
 
-    extract_sprites_from_narc_with_palette(mugshots_narc, String::from("mugshots"), 16, 72);
+    // extract_sprites_from_narc_with_palette(mugshots_narc, String::from("mugshots"), 72);
 
     // mon fulls
-    // let mon_fulls = unpack_path.join("a/0/0/4");
+    let mon_fulls = unpack_path.join("a/0/0/4");
 
-    // let mon_fulls_narc: nds::narc::NARC = File::open(mon_fulls).unwrap().read_le().unwrap();
+    let mon_fulls_narc: nds::narc::NARC = File::open(mon_fulls).unwrap().read_le().unwrap();
 
-    // extract_sprites_from_narc_with_palette(mon_fulls_narc, String::from("mon-fulls"), 8, 58);
+    extract_mon_fulls(mon_fulls_narc, String::from("mon-fulls"));
 
+    // extract_sprites_from_narc_with_palette(mon_fulls_narc, String::from("mon-fulls"), 58);
+
+    // mon_fulls_narc.extract_females(PathBuf::from("./unpacked/a/0/0/4"));
 
     // clean-up unpacked rom dir
     // std::fs::remove_dir_all(unpack_path).unwrap();

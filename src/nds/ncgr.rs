@@ -29,13 +29,23 @@
 //    u16 tileCount;
 // };
 
-use std::io::SeekFrom;
+use std::{io::SeekFrom, path::PathBuf};
 
 use binrw::binrw;
 pub struct GraphicsResource {
     pub width: u32,
     pub height: u32,
     pub data: Vec<u8>,
+}
+
+impl GraphicsResource {
+    pub fn write(&self, path: PathBuf) {
+        if self.height != 0 {
+            println!("Writing sprite file: {:?}", path);
+            std::fs::create_dir_all(&path.parent().unwrap()).unwrap();
+            image::save_buffer(&path, &self.data, self.width, self.height, image::ColorType::Rgba8).unwrap();
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -75,7 +85,7 @@ struct SOPC {
 }
 
 impl NCGR {
-    pub fn unpack_trainer_sprite(&self, palette: &Vec<(u8, u8, u8)>, image_tile_width: u32) -> Option<GraphicsResource> {
+    pub fn unpack_trainer_sprite(&self, palette: &Vec<(u8, u8, u8)>) -> Option<GraphicsResource> {
         let mut colors = Vec::new();
         let mut tmp = Vec::new();
 
@@ -134,7 +144,7 @@ impl NCGR {
         Some(GraphicsResource { width, height, data: buffer })
     }
 
-    pub fn unpack_mon_full_sprite(&self, palette: Vec<(u8, u8, u8)>, image_tile_width: u32) -> Option<GraphicsResource> {
+    pub fn unpack_mon_full_sprite(&self, palette: Vec<(u8, u8, u8)>) -> Option<GraphicsResource> {
         let mut colors = Vec::new();
         let mut tmp = Vec::new();
 
@@ -207,7 +217,7 @@ impl NCGR {
             }
         }
 
-        // this avoids parsing NCER which does god knows to the tiles and replaces them
+        // this avoids parsing NCER which does god knows to the tiles and re-places them
         // INSTEAD, let's just move the tiles ourselves!! oh good god!
         move_pixels(&mut pixels, &mut sorted_pixels, 1, 1  );
         move_pixels(&mut pixels, &mut sorted_pixels, 2, 2  );
@@ -254,6 +264,13 @@ impl NCGR {
                 buffer.push(color.0);
                 buffer.push(color.1);
                 buffer.push(color.2);
+
+                // transparency
+                if pixel == 0 {
+                    buffer.push(0);
+                } else {
+                    buffer.push(255);
+                }
             }
         }
 
