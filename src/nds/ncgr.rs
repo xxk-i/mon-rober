@@ -249,8 +249,8 @@ impl NCGR {
         move_pixels(&mut pixels, &mut sorted_pixels, 28, 29);
         move_pixels(&mut pixels, &mut sorted_pixels, 29, 31);
         move_pixels(&mut pixels, &mut sorted_pixels, 30, 32);
-        move_pixels(&mut pixels, &mut sorted_pixels, 31, 35);
-        move_pixels(&mut pixels, &mut sorted_pixels, 32, 34);
+        move_pixels(&mut pixels, &mut sorted_pixels, 31, 34);
+        move_pixels(&mut pixels, &mut sorted_pixels, 32, 35);
         move_pixels(&mut pixels, &mut sorted_pixels, 33, 27);
         move_pixels(&mut pixels, &mut sorted_pixels, 34, 30);
         move_pixels(&mut pixels, &mut sorted_pixels, 35, 33);
