@@ -28,9 +28,9 @@ const ASSET_DIR: &'static str = "assets";
 // "oriented" == front or back
 struct MonOrientedSpriteSet {
     male: NCGR,
-    female: NCGR,
+    female: Option<NCGR>,
     male_parts: NCGR,
-    female_parts: NCGR,
+    female_parts: Option<NCGR>,
     // ncer: Vec<u8>,
     // nanr: Vec<u8>,
     // nmcr: Vec<u8>,
@@ -223,7 +223,7 @@ fn extract_mon_fulls(narc: nds::narc::NARC, output_folder: String) {
                 female: {
                     let mut data = narc.get_decompressed_entry(i * 20 + 1 as usize);
                     if data.get_ref().len() == 0 {
-                        narc.get_decompressed_entry(i * 20 + 0 as usize).read_le().unwrap()
+                        None
                     } else {
                         data.read_le().unwrap()
                     }
@@ -232,7 +232,7 @@ fn extract_mon_fulls(narc: nds::narc::NARC, output_folder: String) {
                 female_parts: { 
                     let mut data = narc.get_decompressed_entry(i * 20 + 3 as usize);
                     if data.get_ref().len() == 0 {
-                        narc.get_decompressed_entry(i * 20 + 2 as usize).read_le().unwrap()
+                        None
                     } else {
                         data.read_le().unwrap()
                     }
@@ -243,7 +243,7 @@ fn extract_mon_fulls(narc: nds::narc::NARC, output_folder: String) {
                 female: {
                     let mut data = narc.get_decompressed_entry(i * 20 + 10 as usize);
                     if data.get_ref().len() == 0 {
-                        narc.get_decompressed_entry(i * 20 + 9 as usize).read_le().unwrap()
+                        None
                     } else {
                         data.read_le().unwrap()
                     }
@@ -252,7 +252,7 @@ fn extract_mon_fulls(narc: nds::narc::NARC, output_folder: String) {
                 female_parts: { 
                     let mut data = narc.get_decompressed_entry(i * 20 + 12 as usize);
                     if data.get_ref().len() == 0 {
-                        narc.get_decompressed_entry(i * 20 + 11 as usize).read_le().unwrap()
+                        None
                     } else {
                         data.read_le().unwrap()
                     }
@@ -263,72 +263,83 @@ fn extract_mon_fulls(narc: nds::narc::NARC, output_folder: String) {
         };
 
         let normal_path = output_path.join("normal");
+        let shiny_path = output_path.join("shiny");
 
+        // MALE
         if let Some(graphics_resource) = mon_sprites_entry.front.male.unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
             graphics_resource.write(normal_path.join("male_front.png"));
-        }
-
-        if let Some(graphics_resource) = mon_sprites_entry.front.female.unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
-            graphics_resource.write(normal_path.join("female_front.png"));
         }
 
         if let Some(graphics_resource) = mon_sprites_entry.front.male_parts.unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
             graphics_resource.write(normal_path.join("male_front_parts.png"));
         }
 
-        if let Some(graphics_resource) = mon_sprites_entry.front.female_parts.unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
-            graphics_resource.write(normal_path.join("female_front_parts.png"));
-        }
-
         if let Some(graphics_resource) = mon_sprites_entry.back.male.unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
             graphics_resource.write(normal_path.join("male_back.png"));
-        }
-
-        if let Some(graphics_resource) = mon_sprites_entry.back.female.unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
-            graphics_resource.write(normal_path.join("female_back.png"));
         }
 
         if let Some(graphics_resource) = mon_sprites_entry.back.male_parts.unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
             graphics_resource.write(normal_path.join("male_back_parts.png"));
         }
 
-        if let Some(graphics_resource) = mon_sprites_entry.back.female_parts.unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
-            graphics_resource.write(normal_path.join("female_back_parts.png"));
-        }
-
-        let shiny_path = output_path.join("shiny");
-
+            // SHINY
         if let Some(graphics_resource) = mon_sprites_entry.front.male.unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
             graphics_resource.write(shiny_path.join("male_front.png"));
-        }
-
-        if let Some(graphics_resource) = mon_sprites_entry.front.female.unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
-            graphics_resource.write(shiny_path.join("female_front.png"));
         }
 
         if let Some(graphics_resource) = mon_sprites_entry.front.male_parts.unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
             graphics_resource.write(shiny_path.join("male_front_parts.png"));
         }
 
-        if let Some(graphics_resource) = mon_sprites_entry.front.female_parts.unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
-            graphics_resource.write(shiny_path.join("female_front_parts.png"));
-        }
-
         if let Some(graphics_resource) = mon_sprites_entry.back.male.unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
             graphics_resource.write(shiny_path.join("male_back.png"));
-        }
-
-        if let Some(graphics_resource) = mon_sprites_entry.back.female.unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
-            graphics_resource.write(shiny_path.join("female_back.png"));
         }
 
         if let Some(graphics_resource) = mon_sprites_entry.back.male_parts.unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
             graphics_resource.write(shiny_path.join("male_back_parts.png"));
         }
+            // SHINY
+        // MALE
 
-        if let Some(graphics_resource) = mon_sprites_entry.back.female_parts.unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
+        if mon_sprites_entry.front.female.is_none() {
+            continue;
+        }
+
+        // FEMALE
+        if let Some(graphics_resource) = mon_sprites_entry.front.female.as_ref().unwrap().unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
+            graphics_resource.write(normal_path.join("female_front.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.front.female_parts.as_ref().unwrap().unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
+            graphics_resource.write(normal_path.join("female_front_parts.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.back.female.as_ref().unwrap().unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
+            graphics_resource.write(normal_path.join("female_back.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.back.female_parts.as_ref().unwrap().unpack_mon_full_sprite(mon_sprites_entry.normal_palette.unpack()) {
+            graphics_resource.write(normal_path.join("female_back_parts.png"));
+        }
+
+            // SHINY
+        if let Some(graphics_resource) = mon_sprites_entry.front.female.unwrap().unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
+            graphics_resource.write(shiny_path.join("female_front.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.front.female_parts.unwrap().unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
+            graphics_resource.write(shiny_path.join("female_front_parts.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.back.female.unwrap().unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
+            graphics_resource.write(shiny_path.join("female_back.png"));
+        }
+
+        if let Some(graphics_resource) = mon_sprites_entry.back.female_parts.unwrap().unpack_mon_full_sprite(mon_sprites_entry.shiny_palette.unpack()) {
             graphics_resource.write(shiny_path.join("female_back_parts.png"));
         }
+            // SHINY
+        // FEMALE
     }
 }
 
