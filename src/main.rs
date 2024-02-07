@@ -59,7 +59,6 @@ fn iterate_main_table(file: &mut File, fnt_offset: u32, subtable_offset: u32, pa
         match &table.data {
             SubtableEntry::FileEntry(name) => {
                 let filepath = path.clone().join(PathBuf::from(name));
-                println!("File entry: {:#?}", filepath);
                 filelist.push(filepath);
             },
             SubtableEntry::SubdirectoryEntry(name, id) => { 
@@ -74,7 +73,7 @@ fn iterate_main_table(file: &mut File, fnt_offset: u32, subtable_offset: u32, pa
     }
 }
 
-fn unpack_rom(mut file: File, path: &PathBuf) {
+fn unpack_rom(mut file: File) {
     let mut filelist = Vec::new();
 
     let current_dir = std::env::current_dir().expect("Failed to get current directory");
@@ -82,19 +81,12 @@ fn unpack_rom(mut file: File, path: &PathBuf) {
     let nds: NDS = file.read_le().expect("Failed to read file");
     file.seek(SeekFrom::Start(nds.fnt_offset as u64)).expect("Failed to seek to FNT");
     let main_table: FNTDirectoryMainTable =  file.read_le().unwrap();
-    println!("first offset: {:0X}", main_table.subtable_offset);
-
-    let total_dirs = main_table.directory_id;
-    println!("total dirs: {total_dirs}");
 
     // collects all FNT entries
     iterate_main_table(&mut file, nds.fnt_offset, nds.fnt_offset, PathBuf::from("unpacked/"), &mut filelist);
 
     // Jump to first file ID in FAT... don't really know what the previous entries are
     file.seek(SeekFrom::Start(nds.fat_offset as u64 + main_table.first_file_id as u64 * 8)).expect("Failed to seek to FAT");
-    // println!("fat offset: {:#0X}", nds.fat_offset);
-
-    // println!("current_dir: {:?}", current_dir);
 
     for path in filelist.iter() {
         let fat_entry: FileAllocationTable = file.read_le().unwrap();
@@ -366,7 +358,8 @@ fn main() {
     let path = PathBuf::from(args.get(1).unwrap());
     let file = File::open(&path).unwrap();
 
-    unpack_rom(file, &path);
+    // dump rom
+    unpack_rom(file);
 
     let unpack_path = std::env::current_dir().unwrap().join("unpacked");
 
