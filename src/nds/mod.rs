@@ -163,6 +163,7 @@ pub struct GenericHeader {
     section_count: u16,
 }
 
+#[allow(dead_code)]
 pub enum NDSCompressionType {
     LZ77(usize),
     LZ11(usize),
@@ -180,7 +181,7 @@ pub fn decompress_lz11(mut data: Cursor<&[u8]>, file_size: usize) -> Vec<u8> {
     data.read(compressed_data.as_mut_slice()).unwrap();
 
     let magic = &compressed_data[0..4];
-    let mut size: usize = magic[1] as usize + ((magic[2] as usize) << 8) + ((magic[3] as usize) << 16);
+    let size: usize = magic[1] as usize + ((magic[2] as usize) << 8) + ((magic[3] as usize) << 16);
 
     data.seek(SeekFrom::Start(4)).unwrap();
 
@@ -190,8 +191,8 @@ pub fn decompress_lz11(mut data: Cursor<&[u8]>, file_size: usize) -> Vec<u8> {
         for i in 0..8u8 {
             let flag = flags.get(i as usize).unwrap();
 
-            let mut len: usize = 0;
-            let mut disp: usize = 0;
+            let mut len: usize;
+            let mut disp: usize;
 
             if *flag {
                 let reference = data.read_le::<u8>().unwrap();

@@ -54,51 +54,8 @@ pub struct IMGBlock {
 }
 
 impl NARC {
-    pub fn extract_females(&self, path: PathBuf) {
-        let current_dir = std::env::current_dir().expect("Failed to get current directory");
-
-        // Have to navigate to the start of the FNT inside of the FNTBlock manually since there
-        // is no offset saved inside of the NARC header
-
-        println!("FNT contains no names, labeling files manually");
-        let mut file_index = 1;
-        for i in 0..751 {
-            // let mut buffer = vec![0u8; entry.end_address as usize - entry.start_address as usize];
-
-            let allocation_info = &self.fat_block.entries[i * 20 + 1];
-            if self.img_block.data[allocation_info.start_address as usize..allocation_info.end_address as usize].len() != 0 {
-                println!("found: {}", i);
-            }
-
-            // let buffer = &self.img_block.data[entry.start_address as usize..entry.end_address as usize];
-
-            // let narc_name = path.file_stem().unwrap().to_str().unwrap().to_owned();
-
-            // let mut final_dir = narc_name.clone();
-            // final_dir.push_str("/");
-
-            // let mut output_file_path = current_dir.clone();
-            // output_file_path.push("narc_unpacked/");
-            // output_file_path.push(&final_dir);
-
-            // std::fs::create_dir_all(&output_file_path).expect("Failed to create output file path");
-
-            // let mut filename = narc_name.clone();
-            // filename.push_str("_");
-            // filename.push_str(&file_index.to_string());
-
-            // output_file_path.push(filename);
-
-            // println!("output filepath: {:?}", output_file_path);
-
-            // let mut output_file = File::create(output_file_path).expect("Failed to create output file");
-            // output_file.write(&buffer).expect("Failed to write data to output file");
-
-            // file_index += 1;
-        }
-    }
-    
     // Extracts contents of a NARC archive to narc_unpacked/narc_name
+    #[allow(dead_code)]
     pub fn extract(&self, path: PathBuf) {
         let current_dir = std::env::current_dir().expect("Failed to get current directory");
 

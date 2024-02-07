@@ -101,6 +101,7 @@ impl NCGR {
 
         // mon icon sprites do not list number of tiles in
         // either dimension so we hard code the width and height
+        // (32 x 64)
         let width =  4 * 8;
         let height = 8 * 8;
         
@@ -215,15 +216,6 @@ impl NCGR {
         // group each 4 together to build each sprite
 
         // build 2x2 images
-
-        let colors_per_byte = if self.rahc.color_depth == 3 {
-            2
-        } else {
-            1
-        };
-        let tile_count = (self.rahc.tile_data_size_bytes / 16u32) / colors_per_byte;
-
-
         let width = self.rahc.n_tiles_x as u32 * 8;
         let height = self.rahc.n_tiles_y as u32 * 8;
 

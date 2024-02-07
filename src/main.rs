@@ -2,7 +2,6 @@
 
 use std::env;
 use std::fs::File;
-use std::io::Cursor;
 use std::io::Read;
 use std::io::Write;
 use std::path::PathBuf;
@@ -10,9 +9,6 @@ use std::path::PathBuf;
 use binrw::io::Seek;
 use binrw::io::SeekFrom;
 use binrw::BinReaderExt;
-
-use bitvec::domain::PartialElement;
-use image::save_buffer;
 
 mod nds;
 use nds::nclr::NCLR;
@@ -22,7 +18,6 @@ use nds::FNTSubtable;
 use nds::SubtableEntry;
 use nds::FileAllocationTable;
 use nds::ncgr::NCGR;
-use nds::nclr;
 
 const ASSET_DIR: &'static str = "assets";
 
