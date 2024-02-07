@@ -46,12 +46,6 @@ struct MonSpritesEntry {
     shiny_palette: NCLR,
 }
 
-impl MonSpritesEntry {
-    pub fn write() {
-
-    }
-}
-
 fn iterate_main_table(file: &mut File, fnt_offset: u32, subtable_offset: u32, path: PathBuf, filelist: &mut Vec<PathBuf>) {
     file.seek(SeekFrom::Start(subtable_offset as u64)).unwrap();
 
@@ -123,89 +117,8 @@ fn unpack_rom(mut file: File, path: &PathBuf) {
     }
 }
 
-fn extract_sprites_from_narc_with_palette(narc: nds::narc::NARC, path: String, palette_index: u32) {
-    let current_dir = std::env::current_dir().unwrap();
+fn extract_mon_icons(narc: nds::narc::NARC, output_folder: String) {
 
-    let mut output_path_base = current_dir.join(ASSET_DIR);
-    output_path_base.push(path);
-
-    let palette_allocation_info = &narc.fat_block.entries[palette_index as usize];
-
-    let palette_data = &narc.img_block.data[palette_allocation_info.start_address as usize..palette_allocation_info.end_address as usize];
-
-    let mut cursor = Cursor::new(palette_data);
-    let mut palette_file: nclr::NCLR = cursor.read_le().unwrap();
-    let palette = palette_file.unpack();
-
-    let mut file_num = 0;
-    for entry in narc.fat_block.entries {
-        let data = &narc.img_block.data[entry.start_address as usize..entry.end_address as usize];
-
-        if data.len() < 4 {
-            continue;
-        }
-
-        let mut output_path = output_path_base.clone();
-
-        let magic = &data[0..4];
-
-        match magic {
-            b"RGCN" => {
-                output_path.push(file_num.to_string() + ".png");
-
-                let ncgr: NCGR = cursor.read_le().unwrap();
-                let graphics_resource = ncgr.unpack_trainer_sprite(&palette).unwrap();
-                // let graphics_resource: GraphicsResource = unpack_ncgr(cursor.clone(), palette.clone(), image_tile_width, NDSCompressionType::None).unwrap();
-
-                println!("Writing sprite file: {:?}", output_path);
-
-                if graphics_resource.height != 0 {
-                    std::fs::create_dir_all(&output_path.parent().unwrap()).unwrap();
-                    save_buffer(&output_path, &graphics_resource.data, graphics_resource.width, graphics_resource.height, image::ColorType::Rgb8).unwrap();
-                }
-            }
-
-            // size is zero, i guess. skip
-            [0x10, 0, 0, 0] => {}
-
-            // compressed, LZ77 variant
-            [0x10, _, _, _] => {
-                let ncgr: NCGR = Cursor::new(nds::decompress_lz77(Cursor::new(&data[0..]) , data.len())).read_le().unwrap();
-                let graphics_resource = ncgr.unpack_trainer_sprite(&palette).unwrap();
-
-                output_path.push(file_num.to_string() + ".png");
-
-                println!("Writing sprite file: {:?}", output_path);
-
-                if graphics_resource.height != 0 {
-                    std::fs::create_dir_all(&output_path.parent().unwrap()).expect("Failed to create output path(s)");
-                    save_buffer(&output_path, &graphics_resource.data, graphics_resource.width, graphics_resource.height, image::ColorType::Rgb8).expect("Failed to save buffer");
-                }
-            }
-
-            // size is zero again, still guessing. skip
-            [0x11, 0, 0, 0] => {}
-
-            // compressed, LZ11 variant
-            [0x11, _, _, _] => {
-                let ncgr: NCGR = Cursor::new(nds::decompress_lz11(Cursor::new(&data[0..]) , data.len())).read_le().unwrap();
-                let graphics_resource = ncgr.unpack_trainer_sprite(&palette).unwrap();
-
-                output_path.push(file_num.to_string() + ".png");
-
-                println!("Writing sprite file: {:?}", output_path);
-
-                if graphics_resource.height != 0  && graphics_resource.data.len() != 0 {
-                    std::fs::create_dir_all(&output_path.parent().unwrap()).expect("Failed to create output path(s)");
-                    save_buffer(&output_path, &graphics_resource.data, graphics_resource.width, graphics_resource.height, image::ColorType::Rgb8).expect("Failed to save buffer");
-                }
-            }
-
-            _ => {}
-        }
-
-        file_num += 1;
-    }
 }
 
 fn extract_mon_fulls(narc: nds::narc::NARC, output_folder: String) {
@@ -439,34 +352,22 @@ fn main() {
     let unpack_path = std::env::current_dir().unwrap().join("unpacked");
 
     // mon icons
-    // let mon_icons = unpack_path.join("a/0/0/7");
-
-    // let mon_narc: nds::narc::NARC = File::open(mon_icons).unwrap().read_le().unwrap();
-
-    // extract_sprites_from_narc(mon_narc, String::from("mon-icons"), 4).unwrap();
+    let mon_icons = unpack_path.join("a/0/0/7");
+    let mon_narc: nds::narc::NARC = File::open(mon_icons).unwrap().read_le().unwrap();
+    extract_mon_icons(mon_narc, String::from("mon_icons"));
 
     // // trainer mugshots
     let mugshots = unpack_path.join("a/2/6/7");
-    
     let mugshots_narc: nds::narc::NARC = File::open(mugshots).unwrap().read_le().unwrap();
-
     extract_trainers(mugshots_narc, String::from("mugshots"));
 
-    // extract_sprites_from_narc_with_palette(mugshots_narc, String::from("mugshots"), 72);
-
     // mon fulls
-    // let mon_fulls = unpack_path.join("a/0/0/4");
-
-    // let mon_fulls_narc: nds::narc::NARC = File::open(mon_fulls).unwrap().read_le().unwrap();
-
-    // extract_mon_fulls(mon_fulls_narc, String::from("mon-fulls"));
-
-    // extract_sprites_from_narc_with_palette(mon_fulls_narc, String::from("mon-fulls"), 58);
-
-    // mon_fulls_narc.extract_females(PathBuf::from("./unpacked/a/0/0/4"));
+    let mon_fulls = unpack_path.join("a/0/0/4");
+    let mon_fulls_narc: nds::narc::NARC = File::open(mon_fulls).unwrap().read_le().unwrap();
+    extract_mon_fulls(mon_fulls_narc, String::from("mon-fulls"));
 
     // clean-up unpacked rom dir
-    // std::fs::remove_dir_all(unpack_path).unwrap();
+    std::fs::remove_dir_all(unpack_path).unwrap();
 
     return;
 }
