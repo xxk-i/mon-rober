@@ -85,7 +85,7 @@ struct SOPC {
 }
 
 impl NCGR {
-    pub fn unpack_trainer_sprite(&self, palette: &Vec<(u8, u8, u8)>) -> Option<GraphicsResource> {
+    pub fn unpack_mon_icon(&self, palette: &Vec<(u8, u8, u8)>) -> Option<GraphicsResource> {
         let mut colors = Vec::new();
         let mut tmp = Vec::new();
 
@@ -99,8 +99,59 @@ impl NCGR {
             tmp.push(upper_bits);
         }
 
-        if self.rahc.n_tiles_x == 0xFFFF {
-            return None;
+        // mon icon sprites do not list number of tiles in
+        // either dimension so we hard code the width and height
+        let width =  4 * 8;
+        let height = 8 * 8;
+        
+        let mut pixels = vec![vec![0u8; width as usize]; height as usize];
+        let mut i = 0;
+        for y in 0..(height / 8) {
+        for x in 0..(width / 8) {
+            for ty in 0..8 {
+            for tx in 0..8 {
+                let cy = y * 8 + ty;
+                let cx = x * 8 + tx;
+                pixels[cy as usize][cx as usize] = tmp.get(i).unwrap().clone();
+                i += 1;
+            }
+            }
+        }
+        }
+
+        let mut buffer= Vec::new();
+
+        for i in pixels {
+            for pixel in i {
+                let color = palette.get(pixel as usize).unwrap();
+                buffer.push(color.0);
+                buffer.push(color.1);
+                buffer.push(color.2);
+
+                // transparency
+                if pixel == 0 {
+                    buffer.push(0);
+                } else {
+                    buffer.push(255);
+                }
+            }
+        }
+
+        Some(GraphicsResource { width, height, data: buffer })
+    }
+
+    pub fn unpack_trainer_sprite(&self, palette: &Vec<(u8, u8, u8)>) -> Option<GraphicsResource> {
+        let mut colors = Vec::new();
+        let mut tmp = Vec::new();
+
+        // index is 4 bits long, so split byte and use each index
+        for palette_index in &self.rahc.data {
+            let lower_bits = palette_index & 0b00001111;
+            let upper_bits = palette_index >> 4;
+            colors.push(palette[lower_bits as usize]);
+            colors.push(palette[upper_bits as usize]);
+            tmp.push(lower_bits);
+            tmp.push(upper_bits);
         }
 
         let width = self.rahc.n_tiles_x as u32 * 8;
@@ -130,6 +181,7 @@ impl NCGR {
                 buffer.push(color.1);
                 buffer.push(color.2);
 
+                // transparency
                 if pixel == 0 {
                     buffer.push(0);
                 } else {

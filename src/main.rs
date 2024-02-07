@@ -118,7 +118,26 @@ fn unpack_rom(mut file: File, path: &PathBuf) {
 }
 
 fn extract_mon_icons(narc: nds::narc::NARC, output_folder: String) {
+    let current_dir = std::env::current_dir().unwrap();
 
+    let mut output_path_base = current_dir.join(ASSET_DIR);
+    output_path_base.push(output_folder);
+
+    // there are 2 palettes at the top that are supposedly different
+    // although they seem to produce the same result
+    let palette_nclr: NCLR = narc.get_decompressed_entry(0).read_le().unwrap();
+    let palette = palette_nclr.unpack();
+
+    let mut i = 8;
+    while i <= 1508 {
+        let icon: NCGR = narc.get_decompressed_entry(i).read_le().unwrap();
+
+        if let Some(graphics_resource) = icon.unpack_mon_icon(&palette) {
+            graphics_resource.write(output_path_base.join(i.to_string() + ".png"));
+        }
+
+        i += 2;
+    }
 }
 
 fn extract_mon_fulls(narc: nds::narc::NARC, output_folder: String) {
@@ -352,21 +371,25 @@ fn main() {
     let unpack_path = std::env::current_dir().unwrap().join("unpacked");
 
     // mon icons
+    println!("Dumping mon icons...");
     let mon_icons = unpack_path.join("a/0/0/7");
     let mon_narc: nds::narc::NARC = File::open(mon_icons).unwrap().read_le().unwrap();
     extract_mon_icons(mon_narc, String::from("mon_icons"));
 
-    // // trainer mugshots
+    // trainer mugshots
+    println!("Dumping trainer mugshots...");
     let mugshots = unpack_path.join("a/2/6/7");
     let mugshots_narc: nds::narc::NARC = File::open(mugshots).unwrap().read_le().unwrap();
     extract_trainers(mugshots_narc, String::from("mugshots"));
 
     // mon fulls
+    println!("Dumping mon fulls...");
     let mon_fulls = unpack_path.join("a/0/0/4");
     let mon_fulls_narc: nds::narc::NARC = File::open(mon_fulls).unwrap().read_le().unwrap();
     extract_mon_fulls(mon_fulls_narc, String::from("mon-fulls"));
 
     // clean-up unpacked rom dir
+    println!("Done! Cleaning up temporary dir...");
     std::fs::remove_dir_all(unpack_path).unwrap();
 
     return;
