@@ -11,6 +11,7 @@ use binrw::io::Seek;
 use binrw::io::SeekFrom;
 use binrw::BinReaderExt;
 
+use bitvec::domain::PartialElement;
 use image::save_buffer;
 
 mod nds;
@@ -343,6 +344,85 @@ fn extract_mon_fulls(narc: nds::narc::NARC, output_folder: String) {
     }
 }
 
+fn extract_trainers(narc: nds::narc::NARC, output_folder: String) {
+    let current_dir = std::env::current_dir().unwrap();
+
+    let mut output_path_base = current_dir.join(ASSET_DIR);
+    output_path_base.push(output_folder);
+
+    let mut palette_offset = 0;
+
+    // everyone before iris
+    for i in 0..13 {
+        let palette: NCLR = narc.get_decompressed_entry(i + 53).read_le().unwrap();
+        let trainer: NCGR = narc.get_decompressed_entry(i).read_le().unwrap();
+
+        if let Some(graphics_resource) = trainer.unpack_trainer_sprite(&palette.unpack()) {
+            graphics_resource.write(output_path_base.join(i.to_string() + ".png"));
+        }
+    }
+
+    // iris has 2 because legs
+    for i in 13..15 {
+        // shared palette (probably)
+        let palette: NCLR = narc.get_decompressed_entry(13 + 53).read_le().unwrap();
+        let trainer: NCGR = narc.get_decompressed_entry(i).read_le().unwrap();
+
+        if let Some(graphics_resource) = trainer.unpack_trainer_sprite(&palette.unpack()) {
+            graphics_resource.write(output_path_base.join(i.to_string() + ".png"));
+        }
+    }
+
+    palette_offset += 1;
+
+    // guy after iris
+    for i in 15..18 {
+        let palette: NCLR = narc.get_decompressed_entry(i - palette_offset + 53).read_le().unwrap();
+        let trainer: NCGR = narc.get_decompressed_entry(i).read_le().unwrap();
+
+        if let Some(graphics_resource) = trainer.unpack_trainer_sprite(&palette.unpack()) {
+            graphics_resource.write(output_path_base.join(i.to_string() + ".png"));
+        }
+    }
+
+    // gap for medals
+    // for i in 18..23 {
+    //     let palette: NCLR = narc.get_decompressed_entry(i - palette_offset + 53).read_le().unwrap();
+    //     let trainer: NCGR = narc.get_decompressed_entry(i).read_le().unwrap();
+
+    //     if let Some(graphics_resource) = trainer.unpack_trainer_sprite(&palette.unpack()) {
+    //         graphics_resource.write(output_path_base.join(i.to_string() + ".png"));
+    //     }
+    // }
+
+    for i in 0..2 {
+        let palette: NCLR = narc.get_decompressed_entry(71).read_le().unwrap();
+        let trainer: NCGR = narc.get_decompressed_entry(i + 45).read_le().unwrap();
+
+        if let Some(graphics_resource) = trainer.unpack_trainer_sprite(&palette.unpack()) {
+            graphics_resource.write(output_path_base.join((i + 45).to_string() + ".png"));
+        }
+    }
+
+    for i in 0..3 {
+        let palette: NCLR = narc.get_decompressed_entry(72).read_le().unwrap();
+        let trainer: NCGR = narc.get_decompressed_entry(i + 47).read_le().unwrap();
+
+        if let Some(graphics_resource) = trainer.unpack_trainer_sprite(&palette.unpack()) {
+            graphics_resource.write(output_path_base.join((i + 47).to_string() + ".png"));
+        }
+    }
+
+    for i in 0..3 {
+        let palette: NCLR = narc.get_decompressed_entry(74).read_le().unwrap();
+        let trainer: NCGR = narc.get_decompressed_entry(i + 50).read_le().unwrap();
+
+        if let Some(graphics_resource) = trainer.unpack_trainer_sprite(&palette.unpack()) {
+            graphics_resource.write(output_path_base.join((i + 50).to_string() + ".png"));
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
 
@@ -366,18 +446,20 @@ fn main() {
     // extract_sprites_from_narc(mon_narc, String::from("mon-icons"), 4).unwrap();
 
     // // trainer mugshots
-    // let mugshots = unpack_path.join("a/2/6/7");
+    let mugshots = unpack_path.join("a/2/6/7");
     
-    // let mugshots_narc: nds::narc::NARC = File::open(mugshots).unwrap().read_le().unwrap();
+    let mugshots_narc: nds::narc::NARC = File::open(mugshots).unwrap().read_le().unwrap();
+
+    extract_trainers(mugshots_narc, String::from("mugshots"));
 
     // extract_sprites_from_narc_with_palette(mugshots_narc, String::from("mugshots"), 72);
 
     // mon fulls
-    let mon_fulls = unpack_path.join("a/0/0/4");
+    // let mon_fulls = unpack_path.join("a/0/0/4");
 
-    let mon_fulls_narc: nds::narc::NARC = File::open(mon_fulls).unwrap().read_le().unwrap();
+    // let mon_fulls_narc: nds::narc::NARC = File::open(mon_fulls).unwrap().read_le().unwrap();
 
-    extract_mon_fulls(mon_fulls_narc, String::from("mon-fulls"));
+    // extract_mon_fulls(mon_fulls_narc, String::from("mon-fulls"));
 
     // extract_sprites_from_narc_with_palette(mon_fulls_narc, String::from("mon-fulls"), 58);
 

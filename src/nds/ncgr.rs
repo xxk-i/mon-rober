@@ -41,7 +41,7 @@ pub struct GraphicsResource {
 impl GraphicsResource {
     pub fn write(&self, path: PathBuf) {
         if self.height != 0 {
-            println!("Writing sprite file: {:?}", path);
+            // println!("Writing sprite file: {:?}", path);
             std::fs::create_dir_all(&path.parent().unwrap()).unwrap();
             image::save_buffer(&path, &self.data, self.width, self.height, image::ColorType::Rgba8).unwrap();
         }
@@ -89,7 +89,6 @@ impl NCGR {
         let mut colors = Vec::new();
         let mut tmp = Vec::new();
 
-
         // index is 4 bits long, so split byte and use each index
         for palette_index in &self.rahc.data {
             let lower_bits = palette_index & 0b00001111;
@@ -99,14 +98,6 @@ impl NCGR {
             tmp.push(lower_bits);
             tmp.push(upper_bits);
         }
-
-        let colors_per_byte = if self.rahc.color_depth == 3 {
-            2
-        } else {
-            1
-        };
-
-        let tile_count = (self.rahc.tile_data_size_bytes / 16u32) / colors_per_byte;
 
         if self.rahc.n_tiles_x == 0xFFFF {
             return None;
@@ -138,6 +129,12 @@ impl NCGR {
                 buffer.push(color.0);
                 buffer.push(color.1);
                 buffer.push(color.2);
+
+                if pixel == 0 {
+                    buffer.push(0);
+                } else {
+                    buffer.push(255);
+                }
             }
         }
 
