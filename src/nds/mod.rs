@@ -1,10 +1,16 @@
+use std::io::Cursor;
+use std::io::SeekFrom;
+
 use binrw::BinRead;
+use binrw::BinReaderExt;
 use binrw::BinResult;
 use binrw::Endian;
 use binrw::io::Seek;
 use binrw::io::Read;
 use binrw::binrw;
 use binrw::NullString;
+use bitvec::order::Msb0;
+use bitvec::view::BitView;
 
 pub mod narc;
 pub mod nclr;
@@ -163,4 +169,140 @@ pub enum NDSCompressionType {
     Huffman,
     RLUncomp,
     None,
+}
+
+// tried to use DSDecomp's comment structure but like 20% sure its wrong
+// used the original instead after figuring out how to actually read it
+// http://problemkaputt.de/gbatek-lz-decompression-functions.htm
+pub fn decompress_lz11(mut data: Cursor<&[u8]>, file_size: usize) -> Vec<u8> {
+    let mut decompressed_data = Vec::new();
+    let mut compressed_data = vec![0u8; file_size];
+    data.read(compressed_data.as_mut_slice()).unwrap();
+
+    let magic = &compressed_data[0..4];
+    let mut size: usize = magic[1] as usize + ((magic[2] as usize) << 8) + ((magic[3] as usize) << 16);
+
+    data.seek(SeekFrom::Start(4)).unwrap();
+
+    while data.stream_position().unwrap() != file_size as u64 {
+        let flags_byte = data.read_be::<u8>().unwrap();
+        let flags = flags_byte.view_bits::<Msb0>();
+        for i in 0..8u8 {
+            let flag = flags.get(i as usize).unwrap();
+
+            let mut len: usize = 0;
+            let mut disp: usize = 0;
+
+            if *flag {
+                let reference = data.read_le::<u8>().unwrap();
+
+                // check first 4 bits of reference
+                match reference >> 4 {
+                    0 => {
+                        let len_msb = (reference << 4) as usize;
+                        let next = data.read_le::<u8>().unwrap();
+                        let len_lsb = (next >> 4) as usize;
+
+                        len = len_msb;
+                        len |= len_lsb;
+                        len += 0x11;
+
+                        disp = ((next & 0xF) as usize) << 8;
+                    },
+
+                    1 => {
+                        let len_msb = ((reference & 0xF) as usize) << 12;
+                        let len_csb = (data.read_le::<u8>().unwrap() as usize) << 4;
+                        let next = data.read_le::<u8>().unwrap();
+                        let len_lsb = (next >> 4) as usize;
+
+                        len = len_msb;
+                        len |= len_csb;
+                        len |= len_lsb;
+                        len += 0x111;
+                        disp = ((next & 0xF) as usize) << 8;
+                    },
+                    _ => {
+                        len = ((reference >> 4) + 0x1) as usize;
+                        disp = ((reference & 0xF) as usize) << 8;
+                    }
+                }
+
+                let disp_lsb = (data.read_le::<u8>().unwrap()) as usize;
+                disp |= disp_lsb;
+
+                let offset = decompressed_data.len() - 1 - disp as usize;
+                for i in 0..len as usize {
+                    decompressed_data.push(decompressed_data[offset + i]);
+                }
+                
+            } else {
+                if data.stream_position().unwrap() != file_size as u64 {
+                    decompressed_data.push(data.read_le::<u8>().unwrap());
+                }
+            }
+        }
+    }
+
+    if decompressed_data.len() != size {
+        println!("decompressed: {}, expected: {}", decompressed_data.len(), size);
+    }
+    decompressed_data
+}
+
+pub fn decompress_lz77(mut data: Cursor<&[u8]>, file_size: usize) -> Vec<u8> {
+    let mut decompressed_data = Vec::new();
+    let mut compressed_data = vec![0u8; file_size]; 
+    data.read(compressed_data.as_mut_slice()).unwrap();
+
+    let magic = &compressed_data[0..4];
+    let size: u32 = magic[1] as u32 + ((magic[2] as u32) << 8) + ((magic[3] as u32) << 16);
+
+    data.seek(SeekFrom::Start(4)).unwrap();
+
+    while data.stream_position().unwrap() != file_size as u64 {
+        let flag_byte: u8 = data.read_le().unwrap();
+
+        // all bits are zero, no compression
+        if flag_byte == 0 {
+            for _ in 0..8 {
+                if data.stream_position().unwrap() != file_size as u64 {
+                    decompressed_data.push(data.read_le::<u8>().unwrap());
+                }
+            }
+            continue;
+        }
+
+        // poorly adapted from this best by far reference:
+        // https://github.com/mtheall/decompress/blob/master/source/lzss.c
+        let flags = flag_byte.view_bits::<Msb0>();
+        for i in 0..8u8 {
+            let flag = flags.get(i as usize).unwrap();
+            if *flag {
+                let reference: u16 = data.read_le().unwrap();
+                let first: u8 = u8::try_from(reference << 8 >> 8).unwrap();
+                let second: u8 = u8::try_from(reference >> 8).unwrap();
+                let len: u32 = (((first & 0xF0)>>4)+3) as u32;
+                let mut disp: u32 = (first & 0x0F) as u32;
+                disp = disp << 8 | second as u32;
+
+                let offset = decompressed_data.len() - 1 - disp as usize;
+
+                for i in 0..len as usize {
+                    decompressed_data.push(decompressed_data[offset + i]);
+                }
+            } else {
+                if data.stream_position().unwrap() != file_size as u64 {
+                    decompressed_data.push(data.read_le::<u8>().unwrap());
+                }
+            }
+        }
+    }
+
+    let padding_size = size as usize - decompressed_data.len();
+    for _ in 0..padding_size {
+        decompressed_data.push(0u8);
+    }
+
+    decompressed_data
 }
